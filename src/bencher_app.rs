@@ -24,11 +24,17 @@ pub enum State {
         current_cli_arg: String,
         runs_input: String,
     },
-    PostContents {
+    Running {
         run_times: Vec<Duration>,
         stop: Sender<()>,
         run_recv: Receiver<Duration>,
         handle: JoinHandle<io::Result<()>>,
+    },
+    PostContents {
+        run_times: Vec<Duration>,
+        min: Duration,
+        max: Duration,
+        avg: Duration,
     },
 }
 
@@ -46,7 +52,10 @@ impl State {
 
 impl BencherApp {
     pub fn new(cc: &CreationContext) -> Self {
-        let binary = cc.storage.and_then(|s| s.get_string("binary_path"));
+        let binary = cc
+            .storage
+            .and_then(|s| s.get_string("binary_path"))
+            .map(PathBuf::from);
         let cli_args = cc
             .storage
             .and_then(|s| s.get_string("cli_args"))
@@ -56,13 +65,21 @@ impl BencherApp {
 
         Self {
             runs: 0,
-            state: State::new(binary.map(PathBuf::from), cli_args, runs_input),
+            state: State::new(binary, cli_args, runs_input),
         }
     }
 }
 
 impl App for BencherApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+        fn show_runs(runs: &[Duration], ui: &mut Ui) {
+            ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
+                for (i, run) in runs.iter().enumerate() {
+                    ui.label(format!("Run {} took {run:?}.", i + 1));
+                }
+            });
+        }
+
         let mut change = None;
         match &mut self.state {
             State::PreContents {
@@ -150,7 +167,21 @@ impl App for BencherApp {
                         if let Ok(runs) = runs {
                             ui.separator();
                             if ui.button("Go!").clicked() {
-                                change = Some((runs, binary.clone().unwrap(), cli_args.clone()));
+                                self.runs = runs;
+                                let (send_stop, recv_stop) = channel();
+                                let (handle, run_recv) = Builder::new()
+                                    .binary(binary.clone().unwrap())
+                                    .runs(runs)
+                                    .stop_channel(recv_stop)
+                                    .with_cli_args(cli_args.clone())
+                                    .start();
+
+                                change = Some(State::Running {
+                                    run_times: vec![],
+                                    stop: send_stop,
+                                    run_recv,
+                                    handle,
+                                });
                             }
                         }
                     }
@@ -169,47 +200,33 @@ impl App for BencherApp {
                     *binary_dialog = None;
                 }
             }
-            State::PostContents {
+            State::Running {
                 run_times,
                 stop,
                 run_recv,
                 handle,
             } => {
-                fn show_runs(runs: &[Duration], ui: &mut Ui) {
-                    ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                        for (i, run) in runs.iter().enumerate() {
-                            ui.label(format!("Run {} took {run:?}.", i + 1));
-                        }
-                    });
-                }
-
                 if handle.is_finished() {
-                    CentralPanel::default().show(ctx, |ui| {
-                        ui.label("All runs finished!");
-                        ui.separator();
-                        show_runs(run_times, ui);
-                        ui.separator();
+                    let max = *run_times.iter().max().unwrap();
+                    let min = *run_times.iter().min().unwrap();
 
-                        let max = run_times.iter().max().unwrap();
-                        let min = run_times.iter().min().unwrap();
+                    let avg = run_times.iter().sum::<Duration>() / (run_times.len() as u32); //TODO: cache these in finished state
 
-                        let avg = run_times.iter().sum::<Duration>() / (run_times.len() as u32); //TODO: cache these in finished state
-
-                        ui.label(format!("Max: {max:?}"));
-                        ui.label(format!("Min: {min:?}"));
-                        ui.label(format!("Mean: {avg:?}"));
-
-                        if ui.button("Export to CSV: ").clicked() {
-                            println!("TODO!"); //TODO: make a running/finished state, not just finished
-                        }
+                    change = Some(State::PostContents {
+                        run_times: run_times.clone(),
+                        min,
+                        max,
+                        avg,
                     });
                 } else {
                     CentralPanel::default().show(ctx, |ui| {
-                        ui.label("Still running!");
+                        ui.label("Running!");
                         ui.label(format!("{} runs left.", self.runs - run_times.len()));
                         ui.separator();
+
                         show_runs(run_times, ui);
                         ui.separator();
+
                         if ui.button("Stop!").clicked() {
                             stop.send(()).expect("Cannot send stop signal");
                         }
@@ -220,24 +237,31 @@ impl App for BencherApp {
                     run_times.push(time);
                 }
             }
+            State::PostContents {
+                run_times,
+                min,
+                max,
+                avg,
+            } => {
+                CentralPanel::default().show(ctx, |ui| {
+                    ui.label("All runs finished!");
+                    ui.separator();
+                    show_runs(run_times, ui);
+                    ui.separator();
+
+                    ui.label(format!("Max: {max:?}"));
+                    ui.label(format!("Min: {min:?}"));
+                    ui.label(format!("Mean: {avg:?}"));
+
+                    if ui.button("Export to CSV: ").clicked() {
+                        println!("TODO!");
+                    }
+                });
+            }
         }
 
-        if let Some((runs, binary, args)) = change {
-            self.runs = runs;
-            let (send_stop, recv_stop) = channel();
-            let (handle, run_recv) = Builder::new()
-                .binary(binary)
-                .runs(runs)
-                .stop_channel(recv_stop)
-                .with_cli_args(args)
-                .start();
-
-            self.state = State::PostContents {
-                run_times: vec![],
-                stop: send_stop,
-                run_recv,
-                handle,
-            }
+        if let Some(change) = change {
+            self.state = change;
         }
     }
 
@@ -254,6 +278,7 @@ impl App for BencherApp {
             }
             storage.set_string("cli_args", cli_args.join("---,---"));
             storage.set_string("runs", runs_input.to_string());
+            storage.flush();
         }
     }
 }
