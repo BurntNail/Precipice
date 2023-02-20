@@ -11,3 +11,4 @@ egui = { version = "0.21.0", features = ["persistence"] }
 egui_file = "0.8.0"
 either = "1.8.1"
 itertools = "0.10.5"
+num_cpus = "1.15.0"
