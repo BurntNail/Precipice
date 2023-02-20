@@ -69,7 +69,7 @@ impl Builder {
         let mt = self.is_mt.unwrap();
 
         let chunk_size = if mt {
-            (num_cpus::get() - 1)
+            num_cpus::get() - 1
         } else {
             (runs / 10).max(25)
         }
@@ -116,21 +116,24 @@ impl Builder {
                                 .expect("Error sending result");
                         }
                     }
-                } else {
-                    break;
-                }
 
-                while !handles.is_empty() {
-                    let mut no_removed = 0;
-                    for i in 0..handles.len() {
-                        if handles[i].is_finished() {
-                            handles
-                                .remove(i - no_removed)
-                                .join()
-                                .expect("error joining handle")?;
-                            no_removed += 1;
+                    //TODO: threadpool for handles, maybe add rayon as a dep?
+                    println!("Handles has {}", handles.len());
+
+                    while !handles.is_empty() {
+                        let mut no_removed = 0;
+                        for i in 0..handles.len() {
+                            if handles[i - no_removed].is_finished() {
+                                handles
+                                    .remove(i - no_removed)
+                                    .join()
+                                    .expect("error joining handle")?;
+                                no_removed += 1;
+                            }
                         }
                     }
+                } else {
+                    break;
                 }
             }
 
