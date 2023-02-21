@@ -1,5 +1,3 @@
-
-use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
@@ -72,9 +70,16 @@ impl Builder {
             }
 
             let mut start = Instant::now();
-            for _chunk in (0..runs).into_iter().collect_vec().chunks(CHUNK_SIZE) {
+            let no_runs = runs / CHUNK_SIZE;
+            for i in 0..no_runs {
                 if stop_recv.try_recv().is_err() {
-                    for _ in 0..CHUNK_SIZE {
+                    let no_runs_inside = if i == no_runs - 1 {
+                        runs % CHUNK_SIZE
+                    } else {
+                        CHUNK_SIZE
+                    };
+
+                    for _ in 0..no_runs_inside {
                         let _output = command.status()?;
                         duration_sender
                             .send(start.elapsed())
