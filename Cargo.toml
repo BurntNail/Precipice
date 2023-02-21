@@ -1,5 +1,8 @@
 [package]
-name = "Benchmarker"
+name = "benchmarker"
+description = "Utility for benchmarking arbitrary binaries"
+license = "MIT"
+repository = "https://github.com/BurntNail/Benchmarker.git"
 version = "0.1.0"
 edition = "2021"
 

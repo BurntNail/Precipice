@@ -3,17 +3,6 @@
 version = 3
 
 [[package]]
-name = "Benchmarker"
-version = "0.1.0"
-dependencies = [
- "eframe",
- "egui",
- "egui_file",
- "either",
- "itertools",
-]
-
-[[package]]
 name = "ab_glyph"
 version = "0.2.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -330,6 +319,17 @@ name = "base64"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
+
+[[package]]
+name = "benchmarker"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "egui",
+ "egui_file",
+ "either",
+ "itertools",
+]
 
 [[package]]
 name = "bitflags"
