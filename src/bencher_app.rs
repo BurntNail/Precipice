@@ -23,6 +23,7 @@ pub enum State {
         cli_args: Vec<String>,
         current_cli_arg: String,
         runs_input: String,
+        is_mt: bool,
     },
     Running {
         run_times: Vec<Duration>,
@@ -45,6 +46,7 @@ impl State {
             current_cli_arg: String::default(),
             cli_args,
             binary_dialog: None,
+            is_mt: false,
             runs_input: runs_input.unwrap_or_default(),
         }
     }
@@ -88,6 +90,7 @@ impl App for BencherApp {
                 runs_input,
                 current_cli_arg,
                 cli_args,
+                is_mt,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("Preparing to Bench");
@@ -108,6 +111,8 @@ impl App for BencherApp {
                         ui.label("Runs to complete: ");
                         ui.text_edit_singleline(runs_input);
                     });
+
+                    ui.checkbox(is_mt, "Runs multi-threaded: ");
 
                     ui.separator();
 
@@ -174,6 +179,7 @@ impl App for BencherApp {
                                     .runs(runs)
                                     .stop_channel(recv_stop)
                                     .with_cli_args(cli_args.clone())
+                                    .is_mt(*is_mt)
                                     .start();
 
                                 change = Some(State::Running {
