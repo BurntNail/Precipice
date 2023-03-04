@@ -13,6 +13,7 @@ pub struct Builder {
     cli_args: Vec<String>,
     runs: Option<usize>,
     stop_channel: Option<Receiver<()>>,
+    show_output_in_console: bool,
 }
 
 const CHUNK_SIZE: usize = 25;
@@ -24,6 +25,7 @@ impl Builder {
             cli_args: vec![],
             runs: None,
             stop_channel: None,
+            show_output_in_console: false,
         }
     }
 
@@ -54,20 +56,30 @@ impl Builder {
         self
     }
 
+    pub const fn with_show_console_output(mut self, show_output_in_console: bool) -> Self {
+        self.show_output_in_console = show_output_in_console;
+        self
+    }
+
     ///Panics if elements are not present
     pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
         let runs = self.runs.unwrap();
         let binary = self.binary.unwrap();
         let cli_args = self.cli_args;
         let stop_recv = self.stop_channel.unwrap();
+        let show_output_in_console = self.show_output_in_console;
 
         let (duration_sender, duration_receiver) = channel();
         let handle = std::thread::spawn(move || {
-            info!(%runs, ?binary, ?cli_args, "Starting benching.");
+            info!(%runs, ?binary, ?cli_args, ?show_output_in_console, "Starting benching.");
 
             let mut command = Command::new(binary);
             command.args(cli_args);
-            command.stdout(Stdio::null());
+
+            if !show_output_in_console {
+                command.stdout(Stdio::null());
+            }
+
             if let Ok(cd) = current_dir() {
                 command.current_dir(cd);
             }

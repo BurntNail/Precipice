@@ -25,6 +25,7 @@ pub enum State {
         cli_args: Vec<String>,
         current_cli_arg: String,
         runs_input: String,
+        show_output_in_console: bool,
     },
     Running {
         run_times: Vec<Duration>,
@@ -42,13 +43,19 @@ pub enum State {
 }
 
 impl State {
-    fn new(binary: Option<PathBuf>, cli_args: Vec<String>, runs_input: Option<String>) -> Self {
+    fn new(
+        binary: Option<PathBuf>,
+        cli_args: Vec<String>,
+        runs_input: Option<String>,
+        show_output_in_console: Option<bool>,
+    ) -> Self {
         Self::PreContents {
             binary,
             current_cli_arg: String::default(),
             cli_args,
             binary_dialog: None,
             runs_input: runs_input.unwrap_or_default(),
+            show_output_in_console: show_output_in_console.unwrap_or(false),
         }
     }
 }
@@ -70,10 +77,14 @@ impl BencherApp {
         }
 
         let runs_input = cc.storage.and_then(|s| s.get_string("runs"));
+        let show_output_in_console = cc
+            .storage
+            .and_then(|s| s.get_string("show_output_in_console"))
+            .and_then(|s| s.parse::<bool>().ok());
 
         Self {
             runs: 0,
-            state: State::new(binary, cli_args, runs_input),
+            state: State::new(binary, cli_args, runs_input, show_output_in_console),
         }
     }
 }
@@ -96,6 +107,7 @@ impl App for BencherApp {
                 runs_input,
                 current_cli_arg,
                 cli_args,
+                show_output_in_console,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("Preparing to Bench");
@@ -117,12 +129,14 @@ impl App for BencherApp {
                         ui.text_edit_singleline(runs_input);
                     });
 
+                    ui.checkbox(show_output_in_console, "Show output in console");
+
                     ui.separator();
 
                     ui.label("CLI Arguments");
                     if !cli_args.is_empty() {
                         ScrollArea::vertical().show(ui, |ui| {
-                            //we could have multiple, but immediate mode, so unlikely to affect UX but much easier to juggle for me
+                            //we could have multiple (as in vecs rather than options), but immediate mode, so unlikely to affect UX but much easier to juggle for me
                             let mut need_to_remove = None;
                             let mut up = None;
                             let mut down = None;
@@ -182,6 +196,7 @@ impl App for BencherApp {
                                     .runs(runs)
                                     .stop_channel(recv_stop)
                                     .with_cli_args(cli_args.clone())
+                                    .with_show_console_output(*show_output_in_console)
                                     .start();
 
                                 change = Some(State::Running {
@@ -314,6 +329,7 @@ impl App for BencherApp {
             binary,
             cli_args,
             runs_input,
+            show_output_in_console,
             ..
         } = &self.state
         {
@@ -322,6 +338,7 @@ impl App for BencherApp {
             }
             storage.set_string("cli_args", cli_args.join("---,---"));
             storage.set_string("runs", runs_input.to_string());
+            storage.set_string("show_output_in_console", show_output_in_console.to_string());
 
             info!("Saved stuff");
 
