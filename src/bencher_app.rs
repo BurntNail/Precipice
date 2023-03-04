@@ -1,6 +1,6 @@
 use crate::bencher::Builder;
 use eframe::{App, CreationContext, Frame, Storage};
-use egui::{CentralPanel, Context, ScrollArea, Ui};
+use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Widget};
 use egui_file::FileDialog;
 use std::{
     io::{self, Write},
@@ -216,7 +216,7 @@ impl App for BencherApp {
                     let max = *run_times.iter().max().unwrap();
                     let min = *run_times.iter().min().unwrap();
 
-                    let avg = run_times.iter().sum::<Duration>() / (run_times.len() as u32); //TODO: cache these in finished state
+                    let avg = run_times.iter().sum::<Duration>() / (run_times.len() as u32);
 
                     change = Some(State::PostContents {
                         run_times: run_times.clone(),
@@ -226,12 +226,16 @@ impl App for BencherApp {
                     });
                 } else {
                     CentralPanel::default().show(ctx, |ui| {
+                        let runs_so_far = run_times.len();
+
                         ui.label("Running!");
-                        ui.label(format!("{} runs left.", self.runs - run_times.len()));
+                        ui.label(format!("{} runs left.", self.runs - runs_so_far));
                         ui.separator();
 
                         show_runs(run_times, ui);
                         ui.separator();
+
+                        ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui);
 
                         if ui.button("Stop!").clicked() {
                             stop.send(()).expect("Cannot send stop signal");
