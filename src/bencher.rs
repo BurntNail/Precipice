@@ -94,6 +94,8 @@ impl Builder {
                     } else {
                         CHUNK_SIZE
                     };
+                    
+                    trace!(%i, %no_runs, "Starting batch.");
 
                     for _ in 0..no_runs_inside {
                         let _output = command.status()?;

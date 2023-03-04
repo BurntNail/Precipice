@@ -31,7 +31,7 @@ pub enum State {
         run_times: Vec<Duration>,
         stop: Sender<()>,
         run_recv: Receiver<Duration>,
-        handle: JoinHandle<io::Result<()>>,
+        handle: Option<JoinHandle<io::Result<()>>>,
     },
     PostContents {
         run_times: Vec<Duration>,
@@ -90,6 +90,7 @@ impl BencherApp {
 }
 
 impl App for BencherApp {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         fn show_runs(runs: &[Duration], ui: &mut Ui) {
             ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
@@ -117,6 +118,7 @@ impl App for BencherApp {
 
                     let clicked = ui.button("Change file").clicked(); //to avoid short-circuiting not showing the button
                     if clicked && binary_dialog.is_none() {
+                        info!(binary=?binary.clone(), "Showing File Dialog");
                         let mut dialog = FileDialog::open_file(binary.clone());
                         dialog.open();
                         *binary_dialog = Some(dialog);
@@ -158,7 +160,8 @@ impl App for BencherApp {
 
                             let len_minus_one = cli_args.len() - 1;
                             if let Some(need_to_remove) = need_to_remove {
-                                cli_args.remove(need_to_remove);
+                                let removed = cli_args.remove(need_to_remove);
+                                info!(?removed, "Removing CLI Arg");
                             } else if let Some(up) = up {
                                 if up > 0 {
                                     cli_args.swap(up, up - 1);
@@ -189,6 +192,7 @@ impl App for BencherApp {
                         if let Ok(runs) = runs {
                             ui.separator();
                             if ui.button("Go!").clicked() {
+                                info!("Going!");
                                 self.runs = runs;
                                 let (send_stop, recv_stop) = channel();
                                 let (handle, run_recv) = Builder::new()
@@ -203,7 +207,7 @@ impl App for BencherApp {
                                     run_times: vec![],
                                     stop: send_stop,
                                     run_recv,
-                                    handle,
+                                    handle: Some(handle),
                                 });
                             }
                         }
@@ -216,10 +220,12 @@ impl App for BencherApp {
                         if let Some(file) = dialog.path() {
                             should_close = true;
                             *binary = Some(file);
+                            info!(binary=?binary.clone(), "Picked file");
                         }
                     }
                 }
                 if should_close {
+                    info!("Closing File Dialog");
                     *binary_dialog = None;
                 }
             }
@@ -229,7 +235,13 @@ impl App for BencherApp {
                 run_recv,
                 handle,
             } => {
-                if handle.is_finished() {
+                if handle.as_ref().map_or(false, JoinHandle::is_finished) {
+                    match std::mem::take(handle).unwrap().join() {
+                        Ok(Err(e)) => error!(%e, "Error from running handle"),
+                        Err(_e) => error!("Error joining running handle"),
+                        _ => {}
+                    };
+
                     let max = *run_times.iter().max().unwrap();
                     let min = *run_times.iter().min().unwrap();
 
@@ -256,12 +268,14 @@ impl App for BencherApp {
                         ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui);
 
                         if ui.button("Stop!").clicked() {
+                            info!("Sending stop signal");
                             stop.send(()).expect("Cannot send stop signal");
                         }
                     });
                 }
 
                 for time in run_recv.try_iter() {
+                    trace!(?time, "Adding new time");
                     run_times.push(time);
                 }
             }
@@ -284,6 +298,7 @@ impl App for BencherApp {
 
                     if export_handle.is_none() {
                         if ui.button("Export to CSV").clicked() {
+                            info!("Exporting to CSV");
                             let run_times = run_times.clone();
                             *export_handle = Some(std::thread::spawn(move || {
                                 let mut map: HashMap<u128, usize> = HashMap::new();
@@ -317,6 +332,7 @@ impl App for BencherApp {
 
         if let Some(change) = change {
             if let Some(storage) = frame.storage_mut() {
+                info!("Saving on state change");
                 self.save(storage);
             }
 
