@@ -35,7 +35,7 @@ pub enum State {
         min: Duration,
         max: Duration,
         avg: Duration,
-        export_handle: Option<JoinHandle<io::Result<()>>>
+        export_handle: Option<JoinHandle<io::Result<usize>>>,
     },
 }
 
@@ -57,11 +57,16 @@ impl BencherApp {
             .storage
             .and_then(|s| s.get_string("binary_path"))
             .map(PathBuf::from);
-        let cli_args = cc
+        let mut cli_args = cc
             .storage
             .and_then(|s| s.get_string("cli_args"))
             .map(|s| s.split("---,---").map(ToString::to_string).collect())
             .unwrap_or_default();
+
+        if cli_args.len() == 1 && cli_args[0] == String::default() {
+            cli_args = vec![];
+        }
+
         let runs_input = cc.storage.and_then(|s| s.get_string("runs"));
 
         Self {
@@ -72,7 +77,7 @@ impl BencherApp {
 }
 
 impl App for BencherApp {
-    fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
+    fn update(&mut self, ctx: &Context, frame: &mut Frame) {
         fn show_runs(runs: &[Duration], ui: &mut Ui) {
             ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
                 for (i, run) in runs.iter().enumerate() {
@@ -291,6 +296,10 @@ impl App for BencherApp {
         }
 
         if let Some(change) = change {
+            if let Some(storage) = frame.storage_mut() {
+                self.save(storage);
+            }
+
             self.state = change;
         }
     }
