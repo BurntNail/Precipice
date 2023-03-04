@@ -59,7 +59,7 @@ impl BencherApp {
             .storage
             .and_then(|s| s.get_string("binary_path"))
             .map(PathBuf::from);
-        let mut cli_args = cc
+        let mut cli_args: Vec<String> = cc
             .storage
             .and_then(|s| s.get_string("cli_args"))
             .map(|s| s.split("---,---").map(ToString::to_string).collect())
