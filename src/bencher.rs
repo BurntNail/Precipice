@@ -1,3 +1,34 @@
+//! Module to contain the actual bencher, which runs on its own separate thread.
+//!
+//! A [`Builder`] is used to create the [`JoinHandle`] and [`Receiver`] where you will get the timing durations - when the [`JoinHandle`] is finished, you know you can safely drop the [`Receiver`], or you need to manually count.
+//!
+//! ## Example
+//! ```rust
+//! use std::sync::mpsc::{channel, Receiver, Sender};
+//! let (handle, rx) = Builder::new()
+//!     .binary("/bin/hello")
+//!     .with_cli_arg("hello")
+//!     .runs(1_000)
+//!     .start().unwrap();
+//!
+//! //then, poll the receiver for new durations
+//! //and end the handle when you feel like it
+//! ```
+//!
+//! ## Usage of Builder
+//! The builder contains the following fields:
+//! - a [`PathBuf`] to store the binary to run
+//! - a [`Vec`] of [`String`]s to store the program's arguments
+//! - an [`usize`] to store how many runs to do
+//! - a [`bool`] to decide whether or not to show the binary's output in this program's console
+//! - a [`Receiver`] to check for signals to stop the program
+//!
+//! You **must** pass in *at the very minimum*:
+//! - the [`PathBuf`] using [`Self::binary`]
+//! - the [`usize`] using [`Self::runs`]
+//!
+//! All of the others are optional
+
 use std::{
     env::current_dir,
     io,
@@ -8,17 +39,30 @@ use std::{
     time::{Duration, Instant},
 };
 
+///Struct to build a Bencher - takes in arguments using a builder pattern, then you can start a run.
 pub struct Builder {
+    ///The binary to run
     binary: Option<PathBuf>,
+    ///The args to pass to the binary
     cli_args: Vec<String>,
+    ///The number of runs
     runs: Option<usize>,
+    ///The channel to stop running
     stop_channel: Option<Receiver<()>>,
+    ///Whether or not to inherit stdout
     show_output_in_console: bool,
 }
 
+///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
 const CHUNK_SIZE: usize = 25;
 
 impl Builder {
+    ///Creates a default builder:
+    ///
+    /// - `binary` is `None`
+    /// - `cli_args` is empty
+    /// - `runs` is `None`
+    /// - `stop_channel` is None,
     pub const fn new() -> Self {
         Self {
             binary: None,
@@ -29,88 +73,98 @@ impl Builder {
         }
     }
 
+    ///This sets the binary to run, overwriting anything already there
     #[allow(clippy::missing_const_for_fn)] //pathbuf destructor not at compiletime
     pub fn binary(mut self, string: PathBuf) -> Self {
         self.binary = Some(string);
         self
     }
 
+    ///This sets the number of times to run the program, overwriting anything already there
     pub const fn runs(mut self, runs: usize) -> Self {
         self.runs = Some(runs);
         self
     }
 
+    ///This adds a stop channel, overwriting anything already there
     pub fn stop_channel(mut self, stop_channel: Receiver<()>) -> Self {
         self.stop_channel = Some(stop_channel);
         self
     }
 
+    ///This adds an argument to the list, adding to the existing ones
     #[allow(dead_code)]
     pub fn with_cli_arg(mut self, arg: String) -> Self {
         self.cli_args.push(arg);
         self
     }
 
+    ///This adds a number of new arguments to the list, adding to the existing ones
     pub fn with_cli_args(mut self, mut args: Vec<String>) -> Self {
         self.cli_args.append(&mut args);
         self
     }
 
+    ///This sets whether or not we redirect console output, overwriting anything already there
     pub const fn with_show_console_output(mut self, show_output_in_console: bool) -> Self {
         self.show_output_in_console = show_output_in_console;
         self
     }
 
     ///Panics if elements are not present
-    pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
-        let runs = self.runs.unwrap();
-        let binary = self.binary.unwrap();
+    pub fn start(self) -> Option<(JoinHandle<io::Result<()>>, Receiver<Duration>)> {
+        //Here we make bindings to lots of the internal variables, returning None if we can't see the ones we need
+        let runs = self.runs?;
+        let binary = self.binary?;
         let cli_args = self.cli_args;
-        let stop_recv = self.stop_channel.unwrap();
+        let stop_recv = self.stop_channel;
         let show_output_in_console = self.show_output_in_console;
 
-        let (duration_sender, duration_receiver) = channel();
+        let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
         let handle = std::thread::spawn(move || {
             info!(%runs, ?binary, ?cli_args, ?show_output_in_console, "Starting benching.");
 
             let mut command = Command::new(binary);
-            command.args(cli_args);
+            command.args(cli_args); //Create a new Command and add our arguments
 
             if !show_output_in_console {
-                command.stdout(Stdio::null());
+                command.stdout(Stdio::null()); //If we don't redirect input, set it to have no stdout
             }
 
             if let Ok(cd) = current_dir() {
-                command.current_dir(cd);
+                command.current_dir(cd); //If we have a current directory, add that to the Command
             }
 
             let mut start = Instant::now();
-            let no_runs = runs / CHUNK_SIZE;
-            // let pb = ProgressBar::new(no_runs as u64);
+            let no_runs = runs / CHUNK_SIZE; //Decide on a number of runs based on the chunk size
             for i in 0..no_runs {
-                if stop_recv.try_recv().is_err() {
+                if stop_recv
+                    .as_ref()
+                    .map_or(true, |stop_recv| stop_recv.try_recv().is_err())
+                //If we don't receive anything on the stop channel, or we don't have a stop channel
+                {
                     let no_runs_inside = if i == no_runs - 1 {
                         runs % CHUNK_SIZE
                     } else {
                         CHUNK_SIZE
-                    };
-                    
+                    }; //determine the number of runs, making sure not to do any extras
+
                     trace!(%i, %no_runs, "Starting batch.");
 
                     for _ in 0..no_runs_inside {
-                        let _output = command.status()?;
+                        let _output = command.status()?; //If we can't get the status, yeet it
                         duration_sender
                             .send(start.elapsed())
                             .expect("Error sending result");
-                        start = Instant::now();
+                        start = Instant::now(); //send the elapsed duration and reset it
                     }
                 } else {
-                    break;
+                    break; //if we do need to stop, break the loop
                 }
             }
 
             Ok(())
         });
-        (handle, duration_receiver)
+        Some((handle, duration_receiver))
     }
 }
