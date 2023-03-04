@@ -8,7 +8,7 @@ mod bencher_app;
 
 fn main() {
     eframe::run_native(
-        "KE Bencher",
+        "Benchmarker",
         eframe::NativeOptions::default(),
         Box::new(|cc| Box::new(BencherApp::new(cc))),
     )

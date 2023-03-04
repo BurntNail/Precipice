@@ -3,11 +3,11 @@ use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ScrollArea, Ui};
 use egui_file::FileDialog;
 use std::{
-    io,
+    io::{self, Write},
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
-    time::Duration,
+    time::Duration, fs::File,
 };
 
 pub struct BencherApp {
@@ -35,6 +35,7 @@ pub enum State {
         min: Duration,
         max: Duration,
         avg: Duration,
+        export_handle: Option<JoinHandle<io::Result<()>>>
     },
 }
 
@@ -242,6 +243,7 @@ impl App for BencherApp {
                 min,
                 max,
                 avg,
+                export_handle
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
@@ -253,9 +255,37 @@ impl App for BencherApp {
                     ui.label(format!("Min: {min:?}"));
                     ui.label(format!("Mean: {avg:?}"));
 
-                    if ui.button("Export to CSV: ").clicked() {
-                        println!("TODO!");
+                    if export_handle.is_none() {
+                        if ui.button("Export to CSV: ").clicked() {
+                            let run_times = run_times.clone();
+                            *export_handle = Some(std::thread::spawn(move || {
+                                let tbr = run_times.into_iter().enumerate().fold(String::new(), |mut st, (i, duration)| {
+                                    if i != 0 {
+                                        st += &format!(",{duration:?}");
+                                    } else {
+                                        st += &format!("{duration:?}");
+                                    }
+                                    st
+                                });
+                                let mut file = File::create("results.csv")?;
+                                writeln!(file, "{tbr}")?;
+
+                                Ok(())
+                            }));
+                        }
                     }
+
+
+
+                    if export_handle.map_or(true, |eh| !eh.is_finished()) {
+                        ui.label("Exporting to CSV");
+                    } else {
+                        let eh = std::mem::take(export_handle).unwrap().join();
+                        if let Ok(Err(e)) = eh {
+                            eprintln!("Error exprting to CSV: {e}");
+                        }
+                    }
+
                 });
             }
         }
