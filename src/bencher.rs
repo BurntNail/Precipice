@@ -2,7 +2,7 @@ use std::{
     env::current_dir,
     io,
     path::PathBuf,
-    process::Command,
+    process::{Command, Stdio},
     sync::mpsc::{channel, Receiver},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -65,12 +65,14 @@ impl Builder {
         let handle = std::thread::spawn(move || {
             let mut command = Command::new(binary);
             command.args(cli_args);
+            command.stdout(Stdio::null());
             if let Ok(cd) = current_dir() {
                 command.current_dir(cd);
             }
 
             let mut start = Instant::now();
             let no_runs = runs / CHUNK_SIZE;
+            // let pb = ProgressBar::new(no_runs as u64);
             for i in 0..no_runs {
                 if stop_recv.try_recv().is_err() {
                     let no_runs_inside = if i == no_runs - 1 {
