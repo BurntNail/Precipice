@@ -63,6 +63,8 @@ impl Builder {
 
         let (duration_sender, duration_receiver) = channel();
         let handle = std::thread::spawn(move || {
+            info!(%runs, ?binary, ?cli_args, "Starting benching.");
+
             let mut command = Command::new(binary);
             command.args(cli_args);
             command.stdout(Stdio::null());

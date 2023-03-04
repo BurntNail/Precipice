@@ -3,11 +3,13 @@ use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Widget};
 use egui_file::FileDialog;
 use std::{
+    collections::HashMap,
+    fs::File,
     io::{self, Write},
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
-    time::Duration, fs::File,
+    time::Duration,
 };
 
 pub struct BencherApp {
@@ -223,6 +225,7 @@ impl App for BencherApp {
                         min,
                         max,
                         avg,
+                        export_handle: None,
                     });
                 } else {
                     CentralPanel::default().show(ctx, |ui| {
@@ -252,7 +255,7 @@ impl App for BencherApp {
                 min,
                 max,
                 avg,
-                export_handle
+                export_handle,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
@@ -265,36 +268,34 @@ impl App for BencherApp {
                     ui.label(format!("Mean: {avg:?}"));
 
                     if export_handle.is_none() {
-                        if ui.button("Export to CSV: ").clicked() {
+                        if ui.button("Export to CSV").clicked() {
                             let run_times = run_times.clone();
                             *export_handle = Some(std::thread::spawn(move || {
-                                let tbr = run_times.into_iter().enumerate().fold(String::new(), |mut st, (i, duration)| {
-                                    if i != 0 {
-                                        st += &format!(",{duration:?}");
-                                    } else {
-                                        st += &format!("{duration:?}");
-                                    }
-                                    st
-                                });
+                                let mut map: HashMap<u128, usize> = HashMap::new();
+                                for micros in run_times.into_iter().map(|x| x.as_micros()) {
+                                    *map.entry(micros).or_default() += 1_usize;
+                                }
+                                let tbr =
+                                    map.into_iter().fold(String::new(), |st, (micros, count)| {
+                                        st + &format!("{micros},{count}\n")
+                                    });
                                 let mut file = File::create("results.csv")?;
-                                writeln!(file, "{tbr}")?;
-
-                                Ok(())
+                                let tbr = format!("run_time_micros,count\n{tbr}");
+                                file.write(tbr.as_bytes())
                             }));
                         }
-                    }
-
-
-
-                    if export_handle.map_or(true, |eh| !eh.is_finished()) {
-                        ui.label("Exporting to CSV");
-                    } else {
-                        let eh = std::mem::take(export_handle).unwrap().join();
-                        if let Ok(Err(e)) = eh {
-                            eprintln!("Error exprting to CSV: {e}");
+                    } else if export_handle
+                        .as_ref()
+                        .map_or(false, JoinHandle::is_finished)
+                    {
+                        match std::mem::take(export_handle).unwrap().join() {
+                            Ok(Err(e)) => error!(%e, "Error exprting to CSV"),
+                            Ok(Ok(n)) => info!(%n, "Finished exporting CSV"),
+                            Err(_e) => error!("Error joining handle"),
                         }
+                    } else {
+                        ui.label("Exporting to CSV");
                     }
-
                 });
             }
         }
@@ -321,6 +322,9 @@ impl App for BencherApp {
             }
             storage.set_string("cli_args", cli_args.join("---,---"));
             storage.set_string("runs", runs_input.to_string());
+
+            info!("Saved stuff");
+
             storage.flush();
         }
     }
