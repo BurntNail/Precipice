@@ -7,9 +7,9 @@
 
 use crate::bencher::Builder;
 use eframe::{App, CreationContext, Frame, Storage};
-use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Vec2, Widget};
+use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Widget};
 use egui_file::FileDialog;
-use plotly::{Histogram, ImageFormat, Plot};
+use plotly::{Histogram, Plot};
 use std::{
     collections::HashMap,
     fs::File,
@@ -104,6 +104,8 @@ pub enum State {
         avg: Duration,
         /// `export_handle`stores a [`JoinHandle`] from exporting `run_times` to a CSV to avoid blocking in immediate mode and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
         export_handle: Option<JoinHandle<io::Result<usize>>>,
+        /// `file_name_input` stores a temporary variable to decide the name of the file name
+        file_name_input: String,
     },
 }
 
@@ -358,6 +360,7 @@ impl App for BencherApp {
                         max,
                         avg,
                         export_handle: None,
+                        file_name_input: "results".into(),
                     });
                 } else {
                     CentralPanel::default().show(ctx, |ui| {
@@ -385,6 +388,7 @@ impl App for BencherApp {
                 max,
                 avg,
                 export_handle,
+                file_name_input,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
@@ -400,59 +404,59 @@ impl App for BencherApp {
 
                     if ui.button("Go back to start").clicked() {
                         info!("Going back to start");
-                        change = Some(Self::default_state_from_cc(frame.storage()))
+                        change = Some(Self::default_state_from_cc(frame.storage()));
                     }
 
+                    //if we aren't currently exporting
                     if export_handle.is_none() {
-                        //if we aren't currently exporting
-                        if ui.button("Export to CSV").clicked() {
-                            //and we click the export button
-                            info!("Exporting to CSV");
-                            let run_times = run_times.clone(); //clone this for the thread
-                            *export_handle = Some(std::thread::spawn(move || {
-                                let map =
-                                    map_from_vec(run_times.into_iter().map(|x| x.as_micros()));
-                                let tbr =
-                                    map.into_iter().fold(String::new(), |st, (micros, count)| {
-                                        st + &format!("{micros},{count}\n")
-                                    }); //create the CSV by folding on a String
-                                let mut file = File::create("results.csv")?;
-                                let tbr = format!("run_time_micros,count\n{tbr}");
-                                file.write(tbr.as_bytes()) //create a file, write to it, return errors or bytes written
-                            }));
-                        }
+                        ui.horizontal(|ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("File name (w/o extension): ");
+                                ui.text_edit_singleline(file_name_input);
+                            });
 
-                        if ui.button("Export to HTML").clicked() {
-                            info!("Exporting to HTML");
+                            ui.vertical(|ui| {
+                                if ui.button("Export to CSV").clicked() {
+                                    info!("Exporting to CSV");
 
-                            let run_times = run_times.clone(); //thread-local clone
-                            let win_size = frame
-                                .info()
-                                .window_info
-                                .monitor_size
-                                .unwrap_or(Vec2::new(1280.0, 720.0))
-                                / 1.5;
-                            *export_handle = Some(std::thread::spawn(move || {
-                                // let (times, counts): (Vec<u128>, Vec<usize>) =
-                                //     map_from_vec(run_times.into_iter().map(|x| x.as_micros()))
-                                //         .into_iter()
-                                //         .unzip();
+                                    let run_times = run_times.clone(); //clone this for the thread
+                                    let file_name_input = file_name_input.clone();
 
-                                let mut plot = Plot::new();
-                                plot.add_trace(Histogram::new(
-                                    run_times.into_iter().map(|x| x.as_micros()).collect(),
-                                ));
-                                plot.show_image(
-                                    ImageFormat::PNG,
-                                    win_size.x as usize,
-                                    win_size.y as usize,
-                                );
-                                let html = plot.to_html();
+                                    *export_handle = Some(std::thread::spawn(move || {
+                                        let map = map_from_vec(
+                                            run_times.into_iter().map(|x| x.as_micros()),
+                                        );
+                                        let tbr = map.into_iter().fold(
+                                            String::new(),
+                                            |st, (micros, count)| {
+                                                st + &format!("{micros},{count}\n")
+                                            },
+                                        ); //create the CSV by folding on a String
+                                        let mut file = File::create(file_name_input + ".csv")?;
+                                        let tbr = format!("run_time_micros,count\n{tbr}");
+                                        file.write(tbr.as_bytes()) //create a file, write to it, return errors or bytes written
+                                    }));
+                                }
 
-                                let mut file = File::create("results.html")?;
-                                file.write(html.as_bytes())
-                            }));
-                        }
+                                if ui.button("Export to HTML").clicked() {
+                                    info!("Exporting to HTML");
+
+                                    let run_times = run_times.clone(); //thread-local clone
+                                    let file_name_input = file_name_input.clone();
+
+                                    *export_handle = Some(std::thread::spawn(move || {
+                                        let mut plot = Plot::new();
+                                        plot.add_trace(Histogram::new(
+                                            run_times.into_iter().map(|x| x.as_micros()).collect(),
+                                        ));
+                                        let html = plot.to_html();
+
+                                        let mut file = File::create(file_name_input + ".html")?;
+                                        file.write(html.as_bytes())
+                                    }));
+                                }
+                            });
+                        });
                     } else if export_handle
                         .as_ref()
                         .map_or(false, JoinHandle::is_finished)
