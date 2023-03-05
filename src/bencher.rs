@@ -136,7 +136,7 @@ impl Builder {
             }
 
             let mut start = Instant::now();
-            let no_runs = runs / CHUNK_SIZE; //Decide on a number of runs based on the chunk size
+            let no_runs = (runs / CHUNK_SIZE).max(1); //Decide on a number of runs based on the chunk size
             for i in 0..no_runs {
                 if stop_recv
                     .as_ref()

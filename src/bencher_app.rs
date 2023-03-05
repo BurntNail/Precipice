@@ -269,31 +269,33 @@ impl App for BencherApp {
                     if binary.is_some() {
                         let runs = runs_input.parse::<usize>();
                         if let Ok(runs) = runs {
-                            ui.separator();
-                            if ui.button("Go!").clicked() {
-                                //only make a button if we have a valid runs, and we have a binary
-                                info!("Starting a new run!");
-                                self.runs = runs;
-                                let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Builder thread
+                            if runs > 0 {
+                                ui.separator();
+                                if ui.button("Go!").clicked() {
+                                    //only make a button if we have a valid runs, and we have a binary
+                                    info!("Starting a new run!");
+                                    self.runs = runs;
+                                    let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Builder thread
 
-                                if let Some((handle, run_recv)) = Builder::new()
-                                    .binary(binary.clone().unwrap())
-                                    .runs(runs)
-                                    .stop_channel(recv_stop)
-                                    .with_cli_args(cli_args.clone())
-                                    .with_show_console_output(*show_output_in_console) //Make a new builder using Builder pattern
-                                    .start()
-                                {
-                                    change = Some(State::Running {
-                                        //make a new State with the relevant variables
-                                        run_times: vec![],
-                                        stop: send_stop,
-                                        run_recv,
-                                        handle: Some(handle),
-                                    });
-                                } else {
-                                    warn!("Tried to start Builder with missing variables...");
-                                    //If we can't make a builder, then we are missing variables
+                                    if let Some((handle, run_recv)) = Builder::new()
+                                        .binary(binary.clone().unwrap())
+                                        .runs(runs)
+                                        .stop_channel(recv_stop)
+                                        .with_cli_args(cli_args.clone())
+                                        .with_show_console_output(*show_output_in_console) //Make a new builder using Builder pattern
+                                        .start()
+                                    {
+                                        change = Some(State::Running {
+                                            //make a new State with the relevant variables
+                                            run_times: vec![],
+                                            stop: send_stop,
+                                            run_recv,
+                                            handle: Some(handle),
+                                        });
+                                    } else {
+                                        warn!("Tried to start Builder with missing variables...");
+                                        //If we can't make a builder, then we are missing variables
+                                    }
                                 }
                             }
                         }
@@ -322,6 +324,12 @@ impl App for BencherApp {
                 run_recv,
                 handle,
             } => {
+                for time in run_recv.try_iter() {
+                    //for every message since we last checked, add it to the buffer
+                    trace!(?time, "Adding new time");
+                    run_times.push(time);
+                }
+
                 if handle.as_ref().map_or(false, JoinHandle::is_finished) {
                     //if we have a handle that has yet finished
                     match std::mem::take(handle).unwrap().join() {
@@ -331,9 +339,15 @@ impl App for BencherApp {
                         _ => {}
                     };
 
-                    let max = *run_times.iter().max().unwrap();
-                    let min = *run_times.iter().min().unwrap();
-                    let avg = run_times.iter().sum::<Duration>() / (run_times.len() as u32); //calc min/max/avg
+                    info!("{run_times:?}");
+
+                    let max = run_times.iter().max().copied().unwrap_or_default();
+                    let min = run_times.iter().min().copied().unwrap_or_default();
+                    let avg = if run_times.is_empty() {
+                        Duration::default()
+                    } else {
+                        run_times.iter().sum::<Duration>() / (run_times.len() as u32)
+                    }; //calc min/max/avg
 
                     change = Some(State::PostContents {
                         //new state
@@ -361,12 +375,6 @@ impl App for BencherApp {
                             stop.send(()).expect("Cannot send stop signal");
                         }
                     });
-                }
-
-                for time in run_recv.try_iter() {
-                    //for every message since we last checked, add it to the buffer
-                    trace!(?time, "Adding new time");
-                    run_times.push(time);
                 }
             }
             State::PostContents {
