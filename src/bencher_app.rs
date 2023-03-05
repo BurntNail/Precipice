@@ -125,14 +125,12 @@ impl State {
 }
 
 impl BencherApp {
-    ///This creates a new [`BencherApp`], using [`State::new`] from parsing stuff from the [`CreationContext`]'s [`Storage`], which is persistent between shutdowns
-    pub fn new(cc: &CreationContext) -> Self {
+    ///This uses the [`CreationContext`]'s persistent [`Storage`] to build a default state
+    fn default_state_from_cc(cc: Option<&dyn Storage>) -> State {
         let binary = cc
-            .storage
             .and_then(|s| s.get_string("binary_path"))
             .map(PathBuf::from); //get the binary path and make it into a PathBuf
         let cli_args: Vec<String> = cc
-            .storage
             .and_then(|s| s.get_string("cli_args"))
             .map(|s| {
                 if s.is_empty() {
@@ -143,15 +141,19 @@ impl BencherApp {
             })
             .unwrap_or_default();
 
-        let runs_input = cc.storage.and_then(|s| s.get_string("runs")); //get the runs input
+        let runs_input = cc.and_then(|s| s.get_string("runs")); //get the runs input
         let show_output_in_console = cc
-            .storage
             .and_then(|s| s.get_string("show_output_in_console"))
             .and_then(|s| s.parse::<bool>().ok()); //if both show_output_in_console is a key, and that evaluates to a bool, then we use Some(that), if not we use None
 
+        State::new(binary, cli_args, runs_input, show_output_in_console)
+    }
+
+    ///This creates a new [`BencherApp`], using [`State::new`] from parsing stuff from the [`CreationContext`]'s [`Storage`], which is persistent between shutdowns
+    pub fn new(cc: &CreationContext) -> Self {
         Self {
             runs: 0,
-            state: State::new(binary, cli_args, runs_input, show_output_in_console),
+            state: Self::default_state_from_cc(cc.storage),
         }
     }
 }
@@ -339,8 +341,6 @@ impl App for BencherApp {
                         _ => {}
                     };
 
-                    info!("{run_times:?}");
-
                     let max = run_times.iter().max().copied().unwrap_or_default();
                     let min = run_times.iter().min().copied().unwrap_or_default();
                     let avg = if run_times.is_empty() {
@@ -393,6 +393,13 @@ impl App for BencherApp {
                     ui.label(format!("Max: {max:?}"));
                     ui.label(format!("Min: {min:?}"));
                     ui.label(format!("Mean: {avg:?}")); //display min/max/avg/runs
+
+                    ui.separator();
+
+                    if ui.button("Go back to start").clicked() {
+                        info!("Going back to start");
+                        change = Some(Self::default_state_from_cc(frame.storage()))
+                    }
 
                     if export_handle.is_none() {
                         //if we aren't currently exporting
