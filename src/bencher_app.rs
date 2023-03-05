@@ -7,11 +7,13 @@
 
 use crate::bencher::Builder;
 use eframe::{App, CreationContext, Frame, Storage};
-use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Widget};
+use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Vec2, Widget};
 use egui_file::FileDialog;
+use plotly::{Histogram, ImageFormat, Plot};
 use std::{
     collections::HashMap,
     fs::File,
+    hash::Hash,
     io::{self, Write},
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
@@ -408,11 +410,8 @@ impl App for BencherApp {
                             info!("Exporting to CSV");
                             let run_times = run_times.clone(); //clone this for the thread
                             *export_handle = Some(std::thread::spawn(move || {
-                                let mut map: HashMap<u128, usize> = HashMap::new();
-                                for micros in run_times.into_iter().map(|x| x.as_micros()) {
-                                    *map.entry(micros).or_default() += 1_usize;
-                                } //make a HashMap of how many times each time occurs in microseconds
-
+                                let map =
+                                    map_from_vec(run_times.into_iter().map(|x| x.as_micros()));
                                 let tbr =
                                     map.into_iter().fold(String::new(), |st, (micros, count)| {
                                         st + &format!("{micros},{count}\n")
@@ -422,6 +421,38 @@ impl App for BencherApp {
                                 file.write(tbr.as_bytes()) //create a file, write to it, return errors or bytes written
                             }));
                         }
+
+                        if ui.button("Export to HTML").clicked() {
+                            info!("Exporting to HTML");
+
+                            let run_times = run_times.clone(); //thread-local clone
+                            let win_size = frame
+                                .info()
+                                .window_info
+                                .monitor_size
+                                .unwrap_or(Vec2::new(1280.0, 720.0))
+                                / 1.5;
+                            *export_handle = Some(std::thread::spawn(move || {
+                                // let (times, counts): (Vec<u128>, Vec<usize>) =
+                                //     map_from_vec(run_times.into_iter().map(|x| x.as_micros()))
+                                //         .into_iter()
+                                //         .unzip();
+
+                                let mut plot = Plot::new();
+                                plot.add_trace(Histogram::new(
+                                    run_times.into_iter().map(|x| x.as_micros()).collect(),
+                                ));
+                                plot.show_image(
+                                    ImageFormat::PNG,
+                                    win_size.x as usize,
+                                    win_size.y as usize,
+                                );
+                                let html = plot.to_html();
+
+                                let mut file = File::create("results.html")?;
+                                file.write(html.as_bytes())
+                            }));
+                        }
                     } else if export_handle
                         .as_ref()
                         .map_or(false, JoinHandle::is_finished)
@@ -429,12 +460,12 @@ impl App for BencherApp {
                     {
                         match std::mem::take(export_handle).unwrap().join() {
                             //report errors
-                            Ok(Err(e)) => error!(%e, "Error exprting to CSV"),
-                            Ok(Ok(n)) => info!(%n, "Finished exporting CSV"),
-                            Err(_e) => error!("Error joining handle"),
+                            Ok(Err(e)) => error!(%e, "Error exporting"),
+                            Ok(Ok(n)) => info!(%n, "Finished exporting"),
+                            Err(_e) => error!("Error joining handle for exporting"),
                         }
                     } else {
-                        ui.label("Exporting to CSV"); //if we haven't finished, but have a handle then say we're exporting
+                        ui.label("Exporting..."); //if we haven't finished, but have a handle then say we're exporting
                     }
                 });
             }
@@ -474,4 +505,13 @@ impl App for BencherApp {
             storage.flush();
         }
     }
+}
+
+///Converts an [`Iterator`] into a [`HashMap`] of how many times each item occurs
+fn map_from_vec<N: Hash + Eq>(vec: impl Iterator<Item = N>) -> HashMap<N, usize> {
+    let mut map = HashMap::new();
+    for item in vec {
+        *map.entry(item).or_default() += 1_usize;
+    }
+    map
 }
