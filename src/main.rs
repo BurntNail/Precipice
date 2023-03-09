@@ -16,6 +16,7 @@ use crate::bencher_app::BencherApp;
 mod bencher;
 mod bencher_app;
 mod export;
+mod list;
 
 #[macro_use]
 extern crate tracing;

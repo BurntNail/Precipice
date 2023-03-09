@@ -389,6 +389,8 @@ impl App for BencherApp {
                 avg,
                 export_handle,
                 file_name_input,
+                extra_traces,
+                traces_file_dialog,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
