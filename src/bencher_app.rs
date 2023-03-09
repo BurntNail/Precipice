@@ -447,12 +447,18 @@ impl App for BencherApp {
                                     *export_handle = Some(std::thread::spawn(move || {
                                         let mut plot = Plot::new();
                                         plot.add_trace(Histogram::new(
-                                            run_times.into_iter().map(|x| x.as_micros()).collect(),
-                                        ));
+                                            run_times.clone().into_iter().map(|x| x.as_micros()).collect(),
+                                        ).name("Yeet"));
+                                        plot.add_trace(Histogram::new(
+                                            run_times.into_iter().map(|x| x.as_micros() / 2).collect(),
+                                        ).name("Skeet"));
                                         let html = plot.to_html();
 
                                         let mut file = File::create(file_name_input + ".html")?;
-                                        file.write(html.as_bytes())
+                                        let bytes = html.as_bytes();
+                                        file.write_all(bytes)?;
+
+                                        Ok(bytes.len())
                                     }));
                                 }
                             });
