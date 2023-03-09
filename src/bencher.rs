@@ -29,6 +29,7 @@
 //!
 //! All of the others are optional
 
+use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
@@ -128,35 +129,34 @@ impl Builder {
             command.args(cli_args); //Create a new Command and add our arguments
 
             if !show_output_in_console {
-                command.stdout(Stdio::null()); //If we don't redirect input, set it to have no stdout
+                command.stdout(Stdio::null()); //If we don't redirect IO, set it to have no stdout
+                command.stdin(Stdio::null()); //If we don't redirect IO, set it to have no stdin
+                                              //NB: we still keep stderr
             }
 
             if let Ok(cd) = current_dir() {
                 command.current_dir(cd); //If we have a current directory, add that to the Command
             }
 
-            let mut start = Instant::now();
-            let no_runs = (runs / CHUNK_SIZE).max(1); //Decide on a number of runs based on the chunk size
-            for i in 0..no_runs {
+            let mut start;
+            for chunk_size in (0..runs)
+                .chunks(CHUNK_SIZE)
+                .into_iter()
+                .map(Iterator::count)
+            {
                 if stop_recv
                     .as_ref()
                     .map_or(true, |stop_recv| stop_recv.try_recv().is_err())
                 //If we don't receive anything on the stop channel, or we don't have a stop channel
                 {
-                    let no_runs_inside = if i == no_runs - 1 {
-                        runs % CHUNK_SIZE
-                    } else {
-                        CHUNK_SIZE
-                    }; //determine the number of runs, making sure not to do any extras
+                    trace!(%chunk_size, "Starting batch.");
 
-                    trace!(%i, %no_runs, "Starting batch.");
-
-                    for _ in 0..no_runs_inside {
-                        let _output = command.status()?; //If we can't get the status, yeet it
+                    for _ in 0..chunk_size {
+                        start = Instant::now(); //send the elapsed duration and reset it
+                        let _output = command.output()?; //If we can't get the status, yeet it
                         duration_sender
                             .send(start.elapsed())
                             .expect("Error sending result");
-                        start = Instant::now(); //send the elapsed duration and reset it
                     }
                 } else {
                     break; //if we do need to stop, break the loop

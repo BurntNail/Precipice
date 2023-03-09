@@ -5,9 +5,9 @@
 //!
 //! Inside the app, we change state on update using an [`Option`] which stores a new state, which gets changed after the match statement on the internal state.
 
-use crate::bencher::Builder;
+use crate::{bencher::Builder, list::EguiList};
 use eframe::{App, CreationContext, Frame, Storage};
-use egui::{CentralPanel, Context, ProgressBar, ScrollArea, Ui, Widget};
+use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
 use plotly::{Histogram, Plot};
 use std::{
@@ -73,7 +73,7 @@ pub enum State {
         /// `binary_dialog` stores an [`Option`] of a [`FileDialog`] which is the Dialog object from [`egui_file`] that lets a user pick a file - NB: no validation on whether or not it is a binary
         binary_dialog: Option<FileDialog>, //don't care if it is big - I'll only ever have one `State`
         /// `cli_args` stores a [`Vec`] of [`String`]s for all of the arguments we'll pass to `binary`
-        cli_args: Vec<String>,
+        cli_args: EguiList<String>,
         /// `current_cli_arg` stores a temporary [`String`] for user input of the next `cli_arg` to add to the list
         current_cli_arg: String,
         /// `runs_input` stores a temporary [`String`] for user input of the `runs`
@@ -84,7 +84,7 @@ pub enum State {
     /// [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
     Running {
         /// `run_times` is a [`Vec`] of [`Duration`]s that we've received so far from the [`Builder`]
-        run_times: Vec<Duration>,
+        run_times: EguiList<Duration>,
         /// `stop` is a unit tuple [`Sender`] which allows us to tell the [`Builder`] thread to stop execution as soon as it finishes with the current chunk.
         stop: Sender<()>,
         /// `run_recv` is a [`Receiver`] for getting new [`Duration`]s to send to `run_times`.
@@ -95,7 +95,7 @@ pub enum State {
     /// [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
     PostContents {
         /// `run_times` is a [`Vec`] of [`Duration`]s from the binary run times. If this changes - we need to update `min`, `max`, and `avg`
-        run_times: Vec<Duration>,
+        run_times: EguiList<Duration>,
         /// `min` is the smallest [`Duration`] from `run_times`
         min: Duration,
         /// `max` is the biggest [`Duration`] from `run_times`
@@ -120,7 +120,9 @@ impl State {
         Self::PreContents {
             binary,
             current_cli_arg: String::default(),
-            cli_args,
+            cli_args: EguiList::from(cli_args)
+                .is_reorderable(true)
+                .is_editable(true),
             binary_dialog: None,
             runs_input: runs_input.unwrap_or_default(),
             show_output_in_console: show_output_in_console.unwrap_or(false),
@@ -165,15 +167,6 @@ impl BencherApp {
 impl App for BencherApp {
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
-        ///Show all of the runs in a [`ScrollArea`] numbering each of them, of height 300
-        fn show_runs(runs: &[Duration], ui: &mut Ui) {
-            ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
-                for (i, run) in runs.iter().enumerate() {
-                    ui.label(format!("Run {} took {run:?}.", i + 1));
-                }
-            });
-        }
-
         let mut change = None; //Variable to store a new State if we want to change
 
         //Huge match statement on our current state, mutably
@@ -218,50 +211,7 @@ impl App for BencherApp {
                     ui.separator();
 
                     ui.label("CLI Arguments");
-                    if !cli_args.is_empty() {
-                        //If we don't have any arguments, then we don't need any of this and some of the logic gets screwed
-                        ScrollArea::vertical().show(ui, |ui| {
-                            //we could have multiple (as in vecs rather than options), but immediate mode, so unlikely to affect UX but much easier to juggle for me
-                            let mut need_to_remove = None; //we need to remove this index
-                            let mut up = None; //move this index up a position
-                            let mut down = None; //move this index down a position
-
-                            for (i, arg) in cli_args.iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    //for each of our CLI args, make a new horizontal environment (to almost mimic a table without alignment), and add buttons for remove/up/down, and if we get input then set relevant variables
-                                    ui.label(arg); //Set
-                                    if ui.button("Remove?").clicked() {
-                                        need_to_remove = Some(i);
-                                    }
-                                    if ui.button("Up?").clicked() {
-                                        up = Some(i);
-                                    }
-                                    if ui.button("Down?").clicked() {
-                                        down = Some(i);
-                                    }
-                                });
-                            }
-
-                            let len_minus_one = cli_args.len() - 1;
-                            if let Some(need_to_remove) = need_to_remove {
-                                let removed = cli_args.remove(need_to_remove);
-                                info!(?removed, "Removing CLI Arg");
-                            } else if let Some(up) = up {
-                                //extra code with checking <> 0 for wrapping around rather than just normal swapping
-                                if up > 0 {
-                                    cli_args.swap(up, up - 1);
-                                } else {
-                                    cli_args.swap(0, len_minus_one);
-                                }
-                            } else if let Some(down) = down {
-                                if down <= len_minus_one {
-                                    cli_args.swap(down, down + 1);
-                                } else {
-                                    cli_args.swap(len_minus_one, 0);
-                                }
-                            }
-                        });
-                    }
+                    cli_args.display(ui, |arg, _i| arg.to_string());
 
                     ui.horizontal(|ui| {
                         ui.label("New Argument");
@@ -287,13 +237,13 @@ impl App for BencherApp {
                                         .binary(binary.clone().unwrap())
                                         .runs(runs)
                                         .stop_channel(recv_stop)
-                                        .with_cli_args(cli_args.clone())
+                                        .with_cli_args(cli_args.backing_vec())
                                         .with_show_console_output(*show_output_in_console) //Make a new builder using Builder pattern
                                         .start()
                                     {
                                         change = Some(State::Running {
                                             //make a new State with the relevant variables
-                                            run_times: vec![],
+                                            run_times: EguiList::default().is_scrollable(true),
                                             stop: send_stop,
                                             run_recv,
                                             handle: Some(handle),
@@ -370,7 +320,7 @@ impl App for BencherApp {
                         ui.label(format!("{} runs left.", self.runs - runs_so_far));
                         ui.separator();
 
-                        show_runs(run_times, ui);
+                        run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}"));
                         ui.separator();
 
                         ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui); //show all runs and add progress bar
@@ -389,13 +339,11 @@ impl App for BencherApp {
                 avg,
                 export_handle,
                 file_name_input,
-                extra_traces,
-                traces_file_dialog,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
                     ui.separator();
-                    show_runs(run_times, ui);
+                    run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}"));
                     ui.separator();
 
                     ui.label(format!("Max: {max:?}"));
@@ -448,12 +396,25 @@ impl App for BencherApp {
 
                                     *export_handle = Some(std::thread::spawn(move || {
                                         let mut plot = Plot::new();
-                                        plot.add_trace(Histogram::new(
-                                            run_times.clone().into_iter().map(|x| x.as_micros()).collect(),
-                                        ).name("Yeet"));
-                                        plot.add_trace(Histogram::new(
-                                            run_times.into_iter().map(|x| x.as_micros() / 2).collect(),
-                                        ).name("Skeet"));
+                                        plot.add_trace(
+                                            Histogram::new(
+                                                run_times
+                                                    .clone()
+                                                    .into_iter()
+                                                    .map(|x| x.as_micros())
+                                                    .collect(),
+                                            )
+                                            .name("Yeet"),
+                                        );
+                                        plot.add_trace(
+                                            Histogram::new(
+                                                run_times
+                                                    .into_iter()
+                                                    .map(|x| x.as_micros() / 2)
+                                                    .collect(),
+                                            )
+                                            .name("Skeet"),
+                                        );
                                         let html = plot.to_html();
 
                                         let mut file = File::create(file_name_input + ".html")?;
