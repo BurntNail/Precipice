@@ -15,7 +15,7 @@ use crate::bencher_app::BencherApp;
 
 mod bencher;
 mod bencher_app;
-mod export;
+mod io;
 mod list;
 
 #[macro_use]

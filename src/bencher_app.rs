@@ -5,16 +5,17 @@
 //!
 //! Inside the app, we change state on update using an [`Option`] which stores a new state, which gets changed after the match statement on the internal state.
 
-use crate::{bencher::Builder, list::EguiList};
+use crate::{
+    bencher::Builder,
+    io::{export_csv, export_html},
+    list::EguiList,
+};
 use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
-use plotly::{Histogram, Plot};
 use std::{
-    collections::HashMap,
-    fs::File,
     hash::Hash,
-    io::{self, Write},
+    io::{self},
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
@@ -106,6 +107,8 @@ pub enum State {
         export_handle: Option<JoinHandle<io::Result<usize>>>,
         /// `file_name_input` stores a temporary variable to decide the name of the file name
         file_name_input: String,
+        /// `trace_name_input` stores a temporary variable to decide the name of the trace
+        trace_name_input: String,
     },
 }
 
@@ -339,6 +342,7 @@ impl App for BencherApp {
                 avg,
                 export_handle,
                 file_name_input,
+                trace_name_input,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
@@ -373,18 +377,12 @@ impl App for BencherApp {
                                     let file_name_input = file_name_input.clone();
 
                                     *export_handle = Some(std::thread::spawn(move || {
-                                        let map = map_from_vec(
-                                            run_times.into_iter().map(|x| x.as_micros()),
-                                        );
-                                        let tbr = map.into_iter().fold(
-                                            String::new(),
-                                            |st, (micros, count)| {
-                                                st + &format!("{micros},{count}\n")
-                                            },
-                                        ); //create the CSV by folding on a String
-                                        let mut file = File::create(file_name_input + ".csv")?;
-                                        let tbr = format!("run_time_micros,count\n{tbr}");
-                                        file.write(tbr.as_bytes()) //create a file, write to it, return errors or bytes written
+                                        export_csv(
+                                            "TODO".into(),
+                                            file_name_input,
+                                            run_times.backing_vec(),
+                                            Vec::<String>::new(),
+                                        )
                                     }));
                                 }
 
@@ -395,33 +393,12 @@ impl App for BencherApp {
                                     let file_name_input = file_name_input.clone();
 
                                     *export_handle = Some(std::thread::spawn(move || {
-                                        let mut plot = Plot::new();
-                                        plot.add_trace(
-                                            Histogram::new(
-                                                run_times
-                                                    .clone()
-                                                    .into_iter()
-                                                    .map(|x| x.as_micros())
-                                                    .collect(),
-                                            )
-                                            .name("Yeet"),
-                                        );
-                                        plot.add_trace(
-                                            Histogram::new(
-                                                run_times
-                                                    .into_iter()
-                                                    .map(|x| x.as_micros() / 2)
-                                                    .collect(),
-                                            )
-                                            .name("Skeet"),
-                                        );
-                                        let html = plot.to_html();
-
-                                        let mut file = File::create(file_name_input + ".html")?;
-                                        let bytes = html.as_bytes();
-                                        file.write_all(bytes)?;
-
-                                        Ok(bytes.len())
+                                        export_html(
+                                            "TODO".into(),
+                                            file_name_input,
+                                            run_times.backing_vec(),
+                                            Vec::<String>::new(),
+                                        )
                                     }));
                                 }
                             });
@@ -478,13 +455,4 @@ impl App for BencherApp {
             storage.flush();
         }
     }
-}
-
-///Converts an [`Iterator`] into a [`HashMap`] of how many times each item occurs
-fn map_from_vec<N: Hash + Eq>(vec: impl Iterator<Item = N>) -> HashMap<N, usize> {
-    let mut map = HashMap::new();
-    for item in vec {
-        *map.entry(item).or_default() += 1_usize;
-    }
-    map
 }
