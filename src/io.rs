@@ -16,12 +16,12 @@ pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>
         return Ok(vec![]);
     }
     let no_lines = lines.lines().count();
-    let mut lines = lines.lines();
+    let lines = lines.lines();
 
     let mut trace_contents = vec![(String::new(), vec![]); no_lines];
-    for line in lines {
-        for (i, time) in line.split(",").enumerate() {
-            if i == 0 {
+    for (i, line) in lines.enumerate() {
+        for (j, time) in line.split(',').enumerate() {
+            if j == 0 {
                 trace_contents[i].0 = time.to_string();
             } else {
                 trace_contents[i]

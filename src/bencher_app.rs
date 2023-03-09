@@ -14,7 +14,6 @@ use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
 use std::{
-    hash::Hash,
     io::{self},
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
@@ -67,6 +66,7 @@ pub struct BencherApp {
 /// - `export_handle`stores a [`JoinHandle`] from exporting `run_times` to a CSV to avoid blocking in immediate mode and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
 #[allow(clippy::large_enum_variant)]
 pub enum State {
+    //TODO: fix docs re ^ with changes to EguiList and add file_name and trace_name
     /// [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Builder`].
     PreContents {
         /// `binary` stores an [`Option`] of a [`PathBuf`] which is the binary we are going to run - Optional because the user doesn't have one when they first open the app.
@@ -109,6 +109,10 @@ pub enum State {
         file_name_input: String,
         /// `trace_name_input` stores a temporary variable to decide the name of the trace
         trace_name_input: String,
+        /// File dialog for extra trace names
+        extra_trace_names_dialog: Option<FileDialog>,
+        /// EguiList for trace names
+        extra_traces: EguiList<PathBuf>,
     },
 }
 
@@ -314,6 +318,9 @@ impl App for BencherApp {
                         avg,
                         export_handle: None,
                         file_name_input: "results".into(),
+                        trace_name_input: "trace".into(),
+                        extra_trace_names_dialog: None,
+                        extra_traces: EguiList::default(), //TODO: cache this over time with the others
                     });
                 } else {
                     CentralPanel::default().show(ctx, |ui| {
@@ -343,6 +350,8 @@ impl App for BencherApp {
                 export_handle,
                 file_name_input,
                 trace_name_input,
+                extra_traces,
+                extra_trace_names_dialog,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
@@ -364,44 +373,61 @@ impl App for BencherApp {
                     //if we aren't currently exporting
                     if export_handle.is_none() {
                         ui.horizontal(|ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("File name (w/o extension): ");
-                                ui.text_edit_singleline(file_name_input);
-                            });
+                            ui.label("File name (w/o extension): ");
+                            ui.text_edit_singleline(file_name_input);
+                        });
 
-                            ui.vertical(|ui| {
-                                if ui.button("Export to CSV").clicked() {
-                                    info!("Exporting to CSV");
+                        ui.horizontal(|ui| {
+                            ui.label("Trace name: ");
+                            ui.text_edit_singleline(trace_name_input);
+                        });
 
-                                    let run_times = run_times.clone(); //clone this for the thread
-                                    let file_name_input = file_name_input.clone();
+                        ui.separator();
+                        let clicked = ui.button("Add Extra Traces").clicked(); //to avoid short-circuiting not showing the button
+                        if clicked && extra_trace_names_dialog.is_none() {
+                            let mut dialog = FileDialog::open_file(None);
+                            dialog.open(); //make a new file dialog, open it, and then save it to the State
+                            *extra_trace_names_dialog = Some(dialog);
+                        }
 
-                                    *export_handle = Some(std::thread::spawn(move || {
-                                        export_csv(
-                                            "TODO".into(),
-                                            file_name_input,
-                                            run_times.backing_vec(),
-                                            Vec::<String>::new(),
-                                        )
-                                    }));
-                                }
+                        extra_traces.display(ui, |file, _i| format!("{file:?}"));
 
-                                if ui.button("Export to HTML").clicked() {
-                                    info!("Exporting to HTML");
+                        ui.vertical(|ui| {
+                            if ui.button("Export to CSV").clicked() {
+                                info!("Exporting to CSV");
 
-                                    let run_times = run_times.clone(); //thread-local clone
-                                    let file_name_input = file_name_input.clone();
+                                let run_times = run_times.clone(); //thread-local clones
+                                let file_name_input = file_name_input.clone();
+                                let trace_name_input = trace_name_input.clone();
+                                let extra_traces = extra_traces.backing_vec();
 
-                                    *export_handle = Some(std::thread::spawn(move || {
-                                        export_html(
-                                            "TODO".into(),
-                                            file_name_input,
-                                            run_times.backing_vec(),
-                                            Vec::<String>::new(),
-                                        )
-                                    }));
-                                }
-                            });
+                                *export_handle = Some(std::thread::spawn(move || {
+                                    export_csv(
+                                        trace_name_input,
+                                        file_name_input,
+                                        run_times.backing_vec(),
+                                        extra_traces,
+                                    )
+                                }));
+                            }
+
+                            if ui.button("Export to HTML").clicked() {
+                                info!("Exporting to HTML");
+
+                                let run_times = run_times.clone(); //thread-local clones
+                                let file_name_input = file_name_input.clone();
+                                let trace_name_input = trace_name_input.clone();
+                                let extra_traces = extra_traces.backing_vec();
+
+                                *export_handle = Some(std::thread::spawn(move || {
+                                    export_html(
+                                        trace_name_input,
+                                        file_name_input,
+                                        run_times.backing_vec(),
+                                        extra_traces,
+                                    )
+                                }));
+                            }
                         });
                     } else if export_handle
                         .as_ref()
@@ -418,6 +444,22 @@ impl App for BencherApp {
                         ui.label("Exporting..."); //if we haven't finished, but have a handle then say we're exporting
                     }
                 });
+
+                let mut should_close = false;
+                if let Some(dialog) = extra_trace_names_dialog {
+                    if dialog.show(ctx).selected() {
+                        //if we select a file, and it is a file then we need to close the thing (after we can get ownership of it, later), and set the binary
+                        if let Some(file) = dialog.path() {
+                            should_close = true;
+                            extra_traces.push(file.clone());
+                            info!(trace=?file, "Picked file for extra traces");
+                        }
+                    }
+                }
+                if should_close {
+                    info!("Closing File Dialog for traces");
+                    *extra_trace_names_dialog = None;
+                } //TODO: make own class/method for these dialogs
             }
         }
 
