@@ -23,3 +23,6 @@ inherits = "release"
 debug = true
 split-debuginfo = "packed"
 
+[[bin]]
+name = "benchmarker_full"
+path = "full/main.rs"

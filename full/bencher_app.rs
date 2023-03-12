@@ -5,7 +5,7 @@
 //!
 //! Inside the app, we change state on update using an [`Option`] which stores a new state, which gets changed after the match statement on the internal state.
 
-use crate::{
+use benchmarker::{
     bencher::Builder,
     io::{export_csv, export_html},
     list::EguiList,
