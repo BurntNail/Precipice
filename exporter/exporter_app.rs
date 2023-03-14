@@ -1,30 +1,30 @@
-use benchmarker::list::EguiList;
+use benchmarker::{io::import_csv, list::EguiList};
 use eframe::{App, Frame, Storage};
 use egui::{CentralPanel, Context};
 use egui_file::FileDialog;
 use itertools::Itertools;
-use std::path::{Path, PathBuf};
+use std::{
+    ffi::OsStr,
+    path::{Path, PathBuf},
+    sync::mpsc::{channel, Receiver, Sender},
+    thread::JoinHandle,
+};
 use tracing::{error, info, warn};
 
 pub struct ExporterApp {
-    files: EguiList<PathBuf>,
-    add_file_dialog: Option<FileDialog>, //TODO: separate thread to import traces as we get them, then add/remove traces rather than files
-}
-
-impl Default for ExporterApp {
-    fn default() -> Self {
-        Self {
-            files: EguiList::default().is_scrollable(true).is_editable(true),
-            add_file_dialog: None,
-        }
-    }
+    files: Vec<PathBuf>,
+    traces: EguiList<(PathBuf, String, Vec<u128>)>,
+    add_file_dialog: Option<FileDialog>,
+    loader_thread: Option<JoinHandle<()>>,
+    file_tx: Sender<PathBuf>,
+    stop_tx: Sender<()>,
+    trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
 }
 
 impl ExporterApp {
     pub fn new(storage: Option<&dyn Storage>) -> Self {
         info!("Starting new EA");
-        let mut s = Self::default();
-        let mut traces = storage
+        let files = storage
             .and_then(|s| s.get_string("files"))
             .map(|s| {
                 if s.is_empty() {
@@ -45,11 +45,50 @@ impl ExporterApp {
                 }
             })
             .collect();
-        s.files.append(&mut traces);
-        s
+
+        let (file_tx, file_rx) = channel();
+        let (stop_tx, stop_rx) = channel();
+        let (trace_tx, trace_rx) = channel();
+
+        let handle = std::thread::spawn(move || {
+            handle_loading(file_rx, stop_rx, trace_tx);
+        });
+
+        Self {
+            files,
+            traces: EguiList::default().is_scrollable(true).is_editable(true),
+            add_file_dialog: None,
+            loader_thread: Some(handle),
+            file_tx,
+            stop_tx,
+            trace_rx,
+        }
     }
 }
 
+#[allow(clippy::needless_pass_by_value)]
+fn handle_loading(
+    file_rx: Receiver<PathBuf>,
+    stop_rx: Receiver<()>,
+    trace_tx: Sender<(PathBuf, String, Vec<u128>)>,
+) {
+    while stop_rx.try_recv().is_err() {
+        while let Ok(file) = file_rx.try_recv() {
+            match import_csv(file.clone()) {
+                Ok(traces) => {
+                    for (name, list) in traces {
+                        trace_tx
+                            .send((file.clone(), name, list))
+                            .expect("unable to send new trace");
+                    }
+                }
+                Err(e) => {
+                    error!(?e, "Error reading traces");
+                }
+            };
+        }
+    }
+}
 impl App for ExporterApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         CentralPanel::default().show(ctx, |ui| {
@@ -67,7 +106,15 @@ impl App for ExporterApp {
                 if dialog.show(ctx).selected() {
                     if let Some(file) = dialog.path() {
                         needs_to_close = true;
-                        self.files.push(file);
+
+                        if file.extension() == Some(OsStr::new("csv")) {
+                            self.files.push(file.clone());
+                            self.file_tx
+                                .send(file)
+                                .expect("unable to send pathbuf to file tx");
+                        } else {
+                            error!(?file, "File doesn't end in CSV");
+                        }
                     }
                 }
             }
@@ -76,9 +123,15 @@ impl App for ExporterApp {
             }
             ui.separator();
 
-            ui.label("Files to use:");
-            self.files.display(ui, |pb, _| format!("{pb:?}"));
+            ui.label("Traces to use:");
+            self.traces.display(ui, |(file, name, list), _i| {
+                format!("File: {file:?}, {name} with {} elements.", list.len())
+            });
         });
+
+        while let Ok(new_trace) = self.trace_rx.try_recv() {
+            self.traces.push(new_trace);
+        }
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {
@@ -95,5 +148,12 @@ impl App for ExporterApp {
             })
             .join(",");
         storage.set_string("files", files_to_save);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        let _ = self.stop_tx.send(()); //only errors are around dropped threads - here thats a pro not a con
+        if let Some(handle) = std::mem::take(&mut self.loader_thread) {
+            handle.join().expect("unable to join loader handle");
+        }
     }
 }
