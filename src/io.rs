@@ -4,12 +4,15 @@ use std::{
     fs::{read_to_string, File},
     io::{self, Write},
     path::Path,
-    time::Duration,
 };
 
 use plotly::{Histogram, Plot};
 
 ///Imports a set of traces from a CSV file
+///
+/// # Errors
+///
+/// Can fail if we fail to read the file using [`read_to_string`]
 pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>> {
     let lines = read_to_string(file)?;
     if lines.trim().is_empty() {
@@ -34,25 +37,47 @@ pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>
     Ok(trace_contents)
 }
 
-///Exports a set of traces to a CSV file
-pub fn export_csv(
-    trace_name: String,
-    file_name_input: impl AsRef<Path> + Display,
-    run_times: Vec<Duration>,
-    extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
-) -> io::Result<usize> {
-    let mut traces: Vec<(String, Vec<u128>)> = extra_trace_file_names
+///Getting multiple traces from multiple files
+fn get_traces(
+    trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
+    trace: Option<(String, Vec<u128>)>,
+) -> io::Result<Vec<(String, Vec<u128>)>> {
+    let mut traces: Vec<(String, Vec<u128>)> = trace_file_names
         .into_iter()
         .map(import_csv)
         .collect::<io::Result<Vec<Vec<(String, Vec<u128>)>>>>()?
         .into_iter()
         .flatten()
         .collect();
-    traces.push((
-        trace_name,
-        run_times.into_iter().map(|x| x.as_micros()).collect(),
-    )); //TODO: have one closure thingie for timing
+    if let Some((name, times)) = trace {
+        traces.push((name, times));
+    }
+    Ok(traces)
+}
 
+///Exports a set of traces to a CSV file
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it, or if we fail to read the traces
+pub fn export_csv(
+    trace: Option<(String, Vec<u128>)>,
+    file_name_input: impl AsRef<Path> + Display,
+    extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> io::Result<usize> {
+    let traces = get_traces(extra_trace_file_names, trace)?;
+    export_csv_no_file_input(file_name_input, traces)
+}
+
+///Exports a set of traces to a CSV file
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it
+pub fn export_csv_no_file_input(
+    file_name_input: impl AsRef<Path> + Display,
+    traces: Vec<(String, Vec<u128>)>,
+) -> io::Result<usize> {
     let mut to_be_written = String::new();
 
     for (name, times) in traces {
@@ -73,24 +98,28 @@ pub fn export_csv(
 }
 
 ///Exports a set of traces to a plotly plot
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it, or if we fail to read the traces
 pub fn export_html(
-    trace_name: String,
+    trace: Option<(String, Vec<u128>)>,
     file_name_input: impl AsRef<Path> + Display,
-    run_times: Vec<Duration>,
     extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> io::Result<usize> {
-    let mut traces: Vec<(String, Vec<u128>)> = extra_trace_file_names
-        .into_iter()
-        .map(import_csv)
-        .collect::<io::Result<Vec<Vec<(String, Vec<u128>)>>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
-    traces.push((
-        trace_name,
-        run_times.into_iter().map(|x| x.as_micros()).collect(),
-    )); //TODO: have one closure thingie for timin
+    let traces = get_traces(extra_trace_file_names, trace)?;
+    export_html_no_file_input(file_name_input, traces)
+}
 
+///Exports a set of traces to a CSV file
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it
+pub fn export_html_no_file_input(
+    file_name_input: impl AsRef<Path> + Display,
+    traces: Vec<(String, Vec<u128>)>,
+) -> io::Result<usize> {
     let mut plot = Plot::new();
     for (name, trace) in traces {
         plot.add_trace(Histogram::new(trace).name(name));
