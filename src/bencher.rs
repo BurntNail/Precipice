@@ -64,6 +64,7 @@ impl Builder {
     /// - `cli_args` is empty
     /// - `runs` is `None`
     /// - `stop_channel` is None,
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             binary: None,
@@ -76,37 +77,42 @@ impl Builder {
 
     ///This sets the binary to run, overwriting anything already there
     #[allow(clippy::missing_const_for_fn)] //pathbuf destructor not at compiletime
+    #[must_use]
     pub fn binary(mut self, string: PathBuf) -> Self {
         self.binary = Some(string);
         self
     }
 
     ///This sets the number of times to run the program, overwriting anything already there
+    #[must_use]
     pub const fn runs(mut self, runs: usize) -> Self {
         self.runs = Some(runs);
         self
     }
 
     ///This adds a stop channel, overwriting anything already there
+    #[must_use]
     pub fn stop_channel(mut self, stop_channel: Receiver<()>) -> Self {
         self.stop_channel = Some(stop_channel);
         self
     }
 
     ///This adds an argument to the list, adding to the existing ones
-    #[allow(dead_code)]
+    #[must_use]
     pub fn with_cli_arg(mut self, arg: String) -> Self {
         self.cli_args.push(arg);
         self
     }
 
     ///This adds a number of new arguments to the list, adding to the existing ones
+    #[must_use]
     pub fn with_cli_args(mut self, mut args: Vec<String>) -> Self {
         self.cli_args.append(&mut args);
         self
     }
 
     ///This sets whether or not we redirect console output, overwriting anything already there
+    #[must_use]
     pub const fn with_show_console_output(mut self, show_output_in_console: bool) -> Self {
         self.show_output_in_console = show_output_in_console;
         self

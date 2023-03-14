@@ -28,17 +28,20 @@ impl<T: Debug> Default for EguiList<T> {
 }
 
 impl<T: Debug> EguiList<T> {
-    pub fn is_scrollable(mut self, is_scrollable: bool) -> Self {
+    #[must_use]
+    pub const fn is_scrollable(mut self, is_scrollable: bool) -> Self {
         self.is_scrollable = is_scrollable;
         self
     }
 
-    pub fn is_editable(mut self, is_editable: bool) -> Self {
+    #[must_use]
+    pub const fn is_editable(mut self, is_editable: bool) -> Self {
         self.is_editable = is_editable;
         self
     }
 
-    pub fn is_reorderable(mut self, is_reorderable: bool) -> Self {
+    #[must_use]
+    pub const fn is_reorderable(mut self, is_reorderable: bool) -> Self {
         self.is_reorderable = is_reorderable;
         self
     }
@@ -136,6 +139,7 @@ impl<T: Debug> IntoIterator for EguiList<T> {
 }
 
 impl<T: Debug + Clone> EguiList<T> {
+    #[must_use]
     pub fn backing_vec(&self) -> Vec<T> {
         self.backing.clone()
     }

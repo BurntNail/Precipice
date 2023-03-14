@@ -11,8 +11,8 @@
 //TODO: loads of docs
 
 pub mod bencher;
+pub mod egui_utils;
 pub mod io;
-pub mod list;
 
 #[macro_use]
 extern crate tracing;

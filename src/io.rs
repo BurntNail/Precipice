@@ -1,5 +1,5 @@
-use std::fmt::Display;
 ///! Module to deal with imports and exports
+use std::fmt::Display;
 use std::{
     fs::{read_to_string, File},
     io::{self, Write},
@@ -82,7 +82,7 @@ pub fn export_csv_no_file_input(
 
     for (name, times) in traces {
         to_be_written += &name;
-        for time in times.into_iter() {
+        for time in times {
             to_be_written += ",";
             to_be_written += &time.to_string();
         }

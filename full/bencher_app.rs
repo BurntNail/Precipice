@@ -7,8 +7,8 @@
 
 use benchmarker::{
     bencher::Builder,
+    egui_utils::EguiList,
     io::{export_csv, export_html},
-    list::EguiList,
     EGUI_STORAGE_SEPARATOR,
 };
 use eframe::{App, CreationContext, Frame, Storage};
