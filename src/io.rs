@@ -10,6 +10,10 @@ use std::{
 use plotly::{Histogram, Plot};
 
 ///Imports a set of traces from a CSV file
+///
+/// # Errors
+///
+/// Can fail if we fail to read the file using [`read_to_string`]
 pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>> {
     let lines = read_to_string(file)?;
     if lines.trim().is_empty() {

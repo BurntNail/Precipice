@@ -34,36 +34,6 @@ pub struct BencherApp {
 /// - [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Builder`].
 /// - [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
 /// - [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
-///
-/// ## Pre
-///
-/// Most of them are optional, but we can only hit *Go!* if we have a valid integer for `runs` and a file for `binary`
-///
-/// This stores all of the important variables for running the binaries:
-/// - `binary` stores an [`Option`] of a [`PathBuf`] which is the binary we are going to run - Optional because the user doesn't have one when they first open the app.
-/// - `binary_dialog` stores an [`Option`] of a [`FileDialog`] which is the Dialog object from [`egui_file`] that lets a user pick a file - NB: no validation on whether or not it is a binary
-/// - `cli_args` stores a [`Vec`] of [`String`]s for all of the arguments we'll pass to `binary`
-/// - `current_cli_arg` stores a temporary [`String`] for user input of the next `cli_arg` to add to the list
-/// - `runs_input` stores a temporary [`String`] for user input of the `runs`
-/// - `show_output_in_console` stores a [`bool`] on whether or not to redirect output from the program
-///
-///
-/// ## During
-///
-/// This stores all the important variables whilst running the binary.
-/// - `run_times` is a [`Vec`] of [`Duration`]s that we've received so far from the [`Builder`]
-/// - `stop` is a unit tuple [`Sender`] which allows us to tell the [`Builder`] thread to stop execution as soon as it finishes with the current chunk.
-/// - `run_recv` is a [`Receiver`] for getting new [`Duration`]s to send to `run_times`.
-/// - `handle` stores a [`JoinHandle`] from [`Builder`], and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
-///
-/// ## After
-///
-/// This stores all the variables for giving things to users, and mostly stay constants apart from the `export_handle`
-/// - `run_times` is a [`Vec`] of [`Duration`]s from the binary run times.
-/// - `min` is the smallest [`Duration`] from `run_times`
-/// - `max` is the biggest [`Duration`] from `run_times`
-/// - `avg` is the mean [`Duration`] from `run_times`
-/// - `export_handle`stores a [`JoinHandle`] from exporting `run_times` to a CSV to avoid blocking in immediate mode and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
 #[allow(clippy::large_enum_variant)]
 pub enum State {
     //TODO: fix docs re ^ with changes to EguiList and add file_name and trace_name
