@@ -376,9 +376,15 @@ impl App for BencherApp {
 
                                 *export_handle = Some(std::thread::spawn(move || {
                                     export_csv(
-                                        trace_name_input,
+                                        Some((
+                                            trace_name_input,
+                                            run_times
+                                                .backing_vec()
+                                                .into_iter()
+                                                .map(|d| d.as_micros())
+                                                .collect(),
+                                        )),
                                         file_name_input,
-                                        run_times.backing_vec(),
                                         extra_traces,
                                     )
                                 }));
@@ -394,9 +400,15 @@ impl App for BencherApp {
 
                                 *export_handle = Some(std::thread::spawn(move || {
                                     export_html(
-                                        trace_name_input,
+                                        Some((
+                                            trace_name_input,
+                                            run_times
+                                                .backing_vec()
+                                                .into_iter()
+                                                .map(|d| d.as_micros())
+                                                .collect(),
+                                        )),
                                         file_name_input,
-                                        run_times.backing_vec(),
                                         extra_traces,
                                     )
                                 }));

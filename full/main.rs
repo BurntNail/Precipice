@@ -1,5 +1,3 @@
-<<<<<<<< HEAD:src/main.rs
-========
 #![warn(clippy::all, clippy::pedantic, clippy::nursery)]
 #![allow(clippy::too_many_lines)]
 
@@ -27,4 +25,3 @@ fn main() {
     )
     .expect("Error with eframe");
 }
->>>>>>>> d448399d7f7b9381071c68c7206a729343068887:full/main.rs
