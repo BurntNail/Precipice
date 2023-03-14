@@ -1,4 +1,8 @@
-use benchmarker::{io::import_csv, list::EguiList};
+use benchmarker::{
+    io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
+    list::EguiList,
+    EGUI_STORAGE_SEPARATOR,
+};
 use eframe::{App, Frame, Storage};
 use egui::{CentralPanel, Context};
 use egui_file::FileDialog;
@@ -19,6 +23,7 @@ pub struct ExporterApp {
     file_tx: Sender<PathBuf>,
     stop_tx: Sender<()>,
     trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
+    export_name: String,
 }
 
 impl ExporterApp {
@@ -30,7 +35,9 @@ impl ExporterApp {
                 if s.is_empty() {
                     vec![]
                 } else {
-                    s.split("---,---").map(ToString::to_string).collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
+                    s.split(EGUI_STORAGE_SEPARATOR)
+                        .map(ToString::to_string)
+                        .collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
                 }
             })
             .unwrap_or_default()
@@ -62,6 +69,7 @@ impl ExporterApp {
             file_tx,
             stop_tx,
             trace_rx,
+            export_name: String::default(),
         }
     }
 }
@@ -123,9 +131,42 @@ impl App for ExporterApp {
             }
             ui.separator();
 
-            ui.label("Traces to use:");
-            self.traces.display(ui, |(file, name, list), _i| {
-                format!("File: {file:?}, {name} with {} elements.", list.len())
+            if !self.traces.is_empty() {
+                ui.label("Traces to use:");
+                self.traces.display(ui, |(file, name, list), _i| {
+                    format!("File: {file:?}, {name} with {} elements.", list.len())
+                });
+                ui.separator();
+            }
+
+            ui.horizontal(|ui| {
+                ui.label("File Name");
+                ui.text_edit_singleline(&mut self.export_name);
+
+                ui.vertical(|ui| {
+                    if ui.button("Export to CSV").clicked() {
+                        export_csv_no_file_input(
+                            &self.export_name,
+                            self.traces
+                                .clone()
+                                .into_iter()
+                                .map(|(_file, name, list)| (name, list))
+                                .collect(),
+                        )
+                        .expect("unable to export files to csv");
+                    }
+                    if ui.button("Export to HTML").clicked() {
+                        export_html_no_file_input(
+                            &self.export_name,
+                            self.traces
+                                .clone()
+                                .into_iter()
+                                .map(|(_file, name, list)| (name, list))
+                                .collect(),
+                        )
+                        .expect("unable to export files to csv");
+                    }
+                });
             });
         });
 
@@ -146,7 +187,7 @@ impl App for ExporterApp {
                     None
                 }
             })
-            .join(",");
+            .join(EGUI_STORAGE_SEPARATOR);
         storage.set_string("files", files_to_save);
     }
 

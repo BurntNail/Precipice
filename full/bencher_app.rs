@@ -9,6 +9,7 @@ use benchmarker::{
     bencher::Builder,
     io::{export_csv, export_html},
     list::EguiList,
+    EGUI_STORAGE_SEPARATOR,
 };
 use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
@@ -119,7 +120,9 @@ impl BencherApp {
                 if s.is_empty() {
                     vec![]
                 } else {
-                    s.split("---,---").map(ToString::to_string).collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
+                    s.split(EGUI_STORAGE_SEPARATOR)
+                        .map(ToString::to_string)
+                        .collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
                 }
             })
             .unwrap_or_default();
@@ -458,7 +461,7 @@ impl App for BencherApp {
                 //only save binary if we can export it to a valid String - utf-8 issues can arise from PathBufs
                 storage.set_string("binary_path", binary);
             }
-            storage.set_string("cli_args", cli_args.join("---,---"));
+            storage.set_string("cli_args", cli_args.join(EGUI_STORAGE_SEPARATOR));
             storage.set_string("runs", runs_input.to_string());
             storage.set_string("show_output_in_console", show_output_in_console.to_string());
 
