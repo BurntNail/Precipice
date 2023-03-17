@@ -1,5 +1,5 @@
 use benchmarker::{
-    egui_utils::{EguiList, ChangeType},
+    egui_utils::{ChangeType, EguiList},
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
     EGUI_STORAGE_SEPARATOR,
 };
@@ -8,11 +8,11 @@ use egui::{CentralPanel, Context};
 use egui_file::FileDialog;
 use itertools::Itertools;
 use std::{
+    collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
-    collections::{HashSet},
 };
 use tracing::{error, info, warn};
 
@@ -78,8 +78,10 @@ impl ExporterApp {
             handle_loading(file_rx, stop_rx, trace_tx);
         });
 
-        for file in files.iter() {
-            file_tx.send(file.clone()).expect("unable to send files from init load");
+        for file in &files {
+            file_tx
+                .send(file.clone())
+                .expect("unable to send files from init load");
         }
 
         Self {
@@ -96,7 +98,7 @@ impl ExporterApp {
     }
 }
 
-///This is the meat and potatoes of the loader thread - it basically just waits for files to arrive and parses all of them, and then repeats. If it sees the stop_rx complaining, then it stops.
+///This is the meat and potatoes of the loader thread - it basically just waits for files to arrive and parses all of them, and then repeats. If it sees the `stop_rx` complaining, then it stops.
 #[allow(clippy::needless_pass_by_value)]
 fn handle_loading(
     file_rx: Receiver<PathBuf>,
@@ -126,7 +128,10 @@ impl App for ExporterApp {
             ui.label("Benchmarker Imports/Exports");
             ui.separator();
 
-            ui.checkbox(&mut self.remove_existing_files_on_add_existing_file, "Remove old traces when re-adding files?");
+            ui.checkbox(
+                &mut self.remove_existing_files_on_add_existing_file,
+                "Remove old traces when re-adding files?",
+            );
             if self.add_file_dialog.is_none() && ui.button("Add new file").clicked() {
                 let mut dialog = FileDialog::open_file(self.files.get(0).cloned());
                 dialog.open();
@@ -142,17 +147,20 @@ impl App for ExporterApp {
                         if file.extension() == Some(OsStr::new("csv")) {
                             if self.files.contains(&file) {
                                 if self.remove_existing_files_on_add_existing_file {
-                                    let inidicies: Vec<usize> = self.traces.iter().enumerate().filter_map(|(i, (trace_file, _, _))| {
-                                        if trace_file == &file {
-                                            Some(i)
-                                        } else {
-                                            None
-                                        }
-                                    }).collect();
-                                    let mut offset = 0;
-                                    for i in inidicies {
+                                    let inidicies: Vec<usize> = self
+                                        .traces
+                                        .iter()
+                                        .enumerate()
+                                        .filter_map(|(i, (trace_file, _, _))| {
+                                            if trace_file == &file {
+                                                Some(i)
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .collect();
+                                    for (offset, i) in inidicies.into_iter().enumerate() {
                                         self.traces.remove(i - offset);
-                                        offset += 1;
                                     }
                                 }
                             } else {
@@ -225,9 +233,9 @@ impl App for ExporterApp {
                     }
                 }
                 self.files = worked.into_iter().collect();
-            },
+            }
             _ => {}
-         }
+        }
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {

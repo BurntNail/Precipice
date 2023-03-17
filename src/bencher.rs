@@ -5,6 +5,8 @@
 //! ## Example
 //! ```rust
 //! use std::sync::mpsc::{channel, Receiver, Sender};
+//! use benchmarker::bencher::Builder;
+//!
 //! let (handle, rx) = Builder::new()
 //!     .binary("/bin/hello")
 //!     .with_cli_arg("hello")
