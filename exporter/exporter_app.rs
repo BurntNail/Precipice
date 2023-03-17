@@ -22,6 +22,7 @@ pub struct ExporterApp {
     files: Vec<PathBuf>,
     ///List of traces we've read from the above files
     traces: EguiList<(PathBuf, String, Vec<u128>)>,
+    ///File dialog for adding new files for traces
     add_file_dialog: Option<FileDialog>,
     loader_thread: Option<JoinHandle<()>>,
     file_tx: Sender<PathBuf>,
