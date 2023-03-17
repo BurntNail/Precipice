@@ -24,10 +24,15 @@ pub struct ExporterApp {
     traces: EguiList<(PathBuf, String, Vec<u128>)>,
     ///File dialog for adding new files for traces
     add_file_dialog: Option<FileDialog>,
+    ///Handle to the thread that loads all of the files
     loader_thread: Option<JoinHandle<()>>,
+    ///Sender for files to the loader thread
     file_tx: Sender<PathBuf>,
+    ///Sender to stop the loader thread - if it receives this, it should break all loops
     stop_tx: Sender<()>,
+    ///Receiver to get back traces from the loader thread
     trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
+    ///The name to export the resulting file to, excluding extensions
     export_name: String,
     remove_existing_files_on_add_existing_file: bool,
 }
