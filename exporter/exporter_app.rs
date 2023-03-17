@@ -1,5 +1,5 @@
 use benchmarker::{
-    egui_utils::EguiList,
+    egui_utils::{EguiList, ChangeType},
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
     EGUI_STORAGE_SEPARATOR,
 };
@@ -12,11 +12,15 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
+    collections::{HashSet},
 };
 use tracing::{error, info, warn};
 
+///Struct for an [`eframe::App`] for exports.
 pub struct ExporterApp {
+    ///Current list of files we've read from - used for storing to load for next time
     files: Vec<PathBuf>,
+    ///List of traces we've read from the above files
     traces: EguiList<(PathBuf, String, Vec<u128>)>,
     add_file_dialog: Option<FileDialog>,
     loader_thread: Option<JoinHandle<()>>,
@@ -24,14 +28,16 @@ pub struct ExporterApp {
     stop_tx: Sender<()>,
     trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
     export_name: String,
+    remove_existing_files_on_add_existing_file: bool,
 }
 
 impl ExporterApp {
     pub fn new(storage: Option<&dyn Storage>) -> Self {
         info!("Starting new EA");
-        let files = storage
+        let files: Vec<PathBuf> = storage
             .and_then(|s| s.get_string("files"))
             .map(|s| {
+                info!(?s, "Got files");
                 if s.is_empty() {
                     vec![]
                 } else {
@@ -42,10 +48,13 @@ impl ExporterApp {
             })
             .unwrap_or_default()
             .into_iter()
+            .unique()
             .filter_map(|s| {
                 let path = Path::new(&s);
                 if path.exists() {
-                    Some(path.to_path_buf())
+                    let pb = path.to_path_buf();
+                    info!(?pb, "Found path");
+                    Some(pb)
                 } else {
                     warn!(?s, ?path, "File not found");
                     None
@@ -61,6 +70,10 @@ impl ExporterApp {
             handle_loading(file_rx, stop_rx, trace_tx);
         });
 
+        for file in files.iter() {
+            file_tx.send(file.clone()).expect("unable to send files from init load");
+        }
+
         Self {
             files,
             traces: EguiList::default().is_scrollable(true).is_editable(true),
@@ -70,6 +83,7 @@ impl ExporterApp {
             stop_tx,
             trace_rx,
             export_name: String::default(),
+            remove_existing_files_on_add_existing_file: false,
         }
     }
 }
@@ -103,6 +117,7 @@ impl App for ExporterApp {
             ui.label("Benchmarker Imports/Exports");
             ui.separator();
 
+            ui.checkbox(&mut self.remove_existing_files_on_add_existing_file, "Remove old traces when re-adding files?");
             if self.add_file_dialog.is_none() && ui.button("Add new file").clicked() {
                 let mut dialog = FileDialog::open_file(self.files.get(0).cloned());
                 dialog.open();
@@ -116,7 +131,25 @@ impl App for ExporterApp {
                         needs_to_close = true;
 
                         if file.extension() == Some(OsStr::new("csv")) {
-                            self.files.push(file.clone());
+                            if self.files.contains(&file) {
+                                if self.remove_existing_files_on_add_existing_file {
+                                    let inidicies: Vec<usize> = self.traces.iter().enumerate().filter_map(|(i, (trace_file, _, _))| {
+                                        if trace_file == &file {
+                                            Some(i)
+                                        } else {
+                                            None
+                                        }
+                                    }).collect();
+                                    let mut offset = 0;
+                                    for i in inidicies {
+                                        self.traces.remove(i - offset);
+                                        offset += 1;
+                                    }
+                                }
+                            } else {
+                                self.files.push(file.clone());
+                            }
+
                             self.file_tx
                                 .send(file)
                                 .expect("unable to send pathbuf to file tx");
@@ -173,6 +206,19 @@ impl App for ExporterApp {
         while let Ok(new_trace) = self.trace_rx.try_recv() {
             self.traces.push(new_trace);
         }
+
+        match self.traces.had_update() {
+            Some(ChangeType::Removed) => {
+                let mut worked = HashSet::with_capacity(self.files.len());
+                for (file, _, _) in self.traces.iter() {
+                    if !worked.contains(file) {
+                        worked.insert(file.clone());
+                    }
+                }
+                self.files = worked.into_iter().collect();
+            },
+            _ => {}
+         }
     }
 
     fn save(&mut self, storage: &mut dyn Storage) {

@@ -1,5 +1,4 @@
-//! Makes an ordered list of things to be displayed in an EGUI window
-//!
+//! Makes an optionally ordered list of things to be displayed in an EGUI window
 
 use egui::{ScrollArea, Ui};
 use std::{
@@ -8,11 +7,18 @@ use std::{
     vec::IntoIter,
 };
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ChangeType {
+    Removed,
+    Reordered
+}
+
 #[derive(Debug, Clone)]
 pub struct EguiList<T: Debug> {
     is_scrollable: bool,
     is_editable: bool,
     is_reorderable: bool,
+    had_list_update: Option<ChangeType>,
     backing: Vec<T>,
 }
 
@@ -23,11 +29,17 @@ impl<T: Debug> Default for EguiList<T> {
             is_editable: false,
             is_reorderable: false,
             backing: vec![],
+            had_list_update: None,
         }
     }
 }
 
 impl<T: Debug> EguiList<T> {
+    #[must_use]
+    pub fn had_update (&mut self) -> Option<ChangeType> {
+        std::mem::take(&mut self.had_list_update)
+    }
+
     #[must_use]
     pub const fn is_scrollable(mut self, is_scrollable: bool) -> Self {
         self.is_scrollable = is_scrollable;
@@ -63,13 +75,16 @@ impl<T: Debug> EguiList<T> {
                 ui.label(label(arg, i));
                 if self.is_editable && ui.button("Remove?").clicked() {
                     need_to_remove = Some(i);
+                    self.had_list_update = Some(ChangeType::Removed);
                 }
                 if self.is_reorderable {
                     if ui.button("Up?").clicked() {
                         up = Some(i);
+                        self.had_list_update = Some(ChangeType::Reordered);
                     }
                     if ui.button("Down?").clicked() {
                         down = Some(i);
+                        self.had_list_update = Some(ChangeType::Reordered);
                     }
                 }
             });
