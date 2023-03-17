@@ -34,10 +34,12 @@ pub struct ExporterApp {
     trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
     ///The name to export the resulting file to, excluding extensions
     export_name: String,
+    ///Whether or not we clear all traces associated with a file, when we re-import that file
     remove_existing_files_on_add_existing_file: bool,
 }
 
 impl ExporterApp {
+    ///Constructor - uses the `storage` to get the files
     pub fn new(storage: Option<&dyn Storage>) -> Self {
         info!("Starting new EA");
         let files: Vec<PathBuf> = storage
@@ -94,6 +96,7 @@ impl ExporterApp {
     }
 }
 
+///This is the meat and potatoes of the loader thread - it basically just waits for files to arrive and parses all of them, and then repeats. If it sees the stop_rx complaining, then it stops.
 #[allow(clippy::needless_pass_by_value)]
 fn handle_loading(
     file_rx: Receiver<PathBuf>,

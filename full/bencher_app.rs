@@ -37,14 +37,13 @@ pub struct BencherApp {
 /// - [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
 #[allow(clippy::large_enum_variant)]
 pub enum State {
-    //TODO: fix docs re ^ with changes to EguiList and add file_name and trace_name
     /// [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Builder`].
     PreContents {
         /// `binary` stores an [`Option`] of a [`PathBuf`] which is the binary we are going to run - Optional because the user doesn't have one when they first open the app.
         binary: Option<PathBuf>,
         /// `binary_dialog` stores an [`Option`] of a [`FileDialog`] which is the Dialog object from [`egui_file`] that lets a user pick a file - NB: no validation on whether or not it is a binary
         binary_dialog: Option<FileDialog>, //don't care if it is big - I'll only ever have one `State`
-        /// `cli_args` stores a [`Vec`] of [`String`]s for all of the arguments we'll pass to `binary`
+        /// `cli_args` stores a [`EguiList`] of [`String`]s for all of the arguments we'll pass to `binary`
         cli_args: EguiList<String>,
         /// `current_cli_arg` stores a temporary [`String`] for user input of the next `cli_arg` to add to the list
         current_cli_arg: String,
@@ -55,7 +54,7 @@ pub enum State {
     },
     /// [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
     Running {
-        /// `run_times` is a [`Vec`] of [`Duration`]s that we've received so far from the [`Builder`]
+        /// `run_times` is a [`EguiList`] of [`Duration`]s that we've received so far from the [`Builder`]
         run_times: EguiList<Duration>,
         /// `stop` is a unit tuple [`Sender`] which allows us to tell the [`Builder`] thread to stop execution as soon as it finishes with the current chunk.
         stop: Sender<()>,
@@ -66,7 +65,7 @@ pub enum State {
     },
     /// [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
     PostContents {
-        /// `run_times` is a [`Vec`] of [`Duration`]s from the binary run times. If this changes - we need to update `min`, `max`, and `avg`
+        /// `run_times` is a [`EguiList`] of [`Duration`]s from the binary run times. If this changes - we need to update `min`, `max`, and `avg`
         run_times: EguiList<Duration>,
         /// `min` is the smallest [`Duration`] from `run_times`
         min: Duration,
@@ -82,7 +81,7 @@ pub enum State {
         trace_name_input: String,
         /// File dialog for extra trace names
         extra_trace_names_dialog: Option<FileDialog>,
-        /// EguiList for trace names
+        /// [`EguiList`] for trace names
         extra_traces: EguiList<PathBuf>,
     },
 }
@@ -191,7 +190,7 @@ impl App for BencherApp {
                     ui.separator();
 
                     ui.label("CLI Arguments");
-                    cli_args.display(ui, |arg, _i| arg.to_string());
+                    cli_args.display(ui, |arg, _i| arg.to_string()); //display all the CLI arguments, not caring about indicies
 
                     ui.horizontal(|ui| {
                         ui.label("New Argument");
@@ -205,7 +204,7 @@ impl App for BencherApp {
                     if binary.is_some() {
                         let runs = runs_input.parse::<usize>();
                         if let Ok(runs) = runs {
-                            if runs > 0 {
+                            if runs > 0 { //only if we have >0 runs, can we actually start the runs - if you want to deal with exports use that program not this one
                                 ui.separator();
                                 if ui.button("Go!").clicked() {
                                     //only make a button if we have a valid runs, and we have a binary
@@ -303,7 +302,7 @@ impl App for BencherApp {
                         ui.label(format!("{} runs left.", self.runs - runs_so_far));
                         ui.separator();
 
-                        run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}"));
+                        run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}")); //display all runs
                         ui.separator();
 
                         ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui); //show all runs and add progress bar
@@ -340,7 +339,7 @@ impl App for BencherApp {
 
                     if ui.button("Go back to start").clicked() {
                         info!("Going back to start");
-                        change = Some(Self::default_state_from_cc(frame.storage()));
+                        change = Some(Self::default_state_from_cc(frame.storage())); //option for going back to the start
                     }
 
                     //if we aren't currently exporting
@@ -375,7 +374,7 @@ impl App for BencherApp {
                                 let extra_traces = extra_traces.backing_vec();
 
                                 *export_handle = Some(std::thread::spawn(move || {
-                                    export_csv(
+                                    export_csv( //start a CSV export
                                         Some((
                                             trace_name_input,
                                             run_times
@@ -399,7 +398,7 @@ impl App for BencherApp {
                                 let extra_traces = extra_traces.backing_vec();
 
                                 *export_handle = Some(std::thread::spawn(move || {
-                                    export_html(
+                                    export_html(//start an HTML export
                                         Some((
                                             trace_name_input,
                                             run_times
