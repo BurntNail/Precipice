@@ -4,12 +4,13 @@
 //!
 //! ## Example
 //! ```rust
+//! use std::path::PathBuf;
 //! use std::sync::mpsc::{channel, Receiver, Sender};
 //! use benchmarker::bencher::Builder;
 //!
 //! let (handle, rx) = Builder::new()
-//!     .binary("/bin/hello")
-//!     .with_cli_arg("hello")
+//!     .binary(PathBuf::from("/bin/echo"))
+//!     .with_cli_arg("hello".into())
 //!     .runs(1_000)
 //!     .start().unwrap();
 //!
@@ -35,8 +36,9 @@ use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
+    io::{Stdout, Write},
     path::PathBuf,
-    process::{Command, Stdio},
+    process::{Command, Output, Stdio},
     sync::mpsc::{channel, Receiver},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -136,12 +138,6 @@ impl Builder {
             let mut command = Command::new(binary);
             command.args(cli_args); //Create a new Command and add our arguments
 
-            if !show_output_in_console {
-                command.stdout(Stdio::null()); //If we don't redirect IO, set it to have no stdout
-                command.stdin(Stdio::null()); //If we don't redirect IO, set it to have no stdin
-                                              //NB: we still keep stderr
-            }
-
             if let Ok(cd) = current_dir() {
                 command.current_dir(cd); //If we have a current directory, add that to the Command
             }
@@ -161,10 +157,37 @@ impl Builder {
 
                     for _ in 0..chunk_size {
                         start = Instant::now(); //send the elapsed duration and reset it
-                        let _output = command.output()?; //If we can't get the status, yeet it
+
+                        let (status, stdout, stderr) = {
+                            let Output {
+                                status,
+                                stdout,
+                                stderr,
+                            } = command.output()?;
+
+                            if show_output_in_console {
+                                (status, stdout, stderr)
+                            } else {
+                                (status, vec![], stderr) //always preserve stderr
+                            }
+                        };
+
                         duration_sender
                             .send(start.elapsed())
                             .expect("Error sending result");
+
+                        if status.success() {
+                            trace!(?status, "Finished command");
+                        } else {
+                            warn!(?status, "Command failed");
+                        }
+
+                        if !stdout.is_empty() {
+                            io::stdout().lock().write_all(&stdout)?;
+                        }
+                        if !stderr.is_empty() {
+                            io::stderr().lock().write_all(&stderr)?;
+                        }
                     }
                 } else {
                     break; //if we do need to stop, break the loop
