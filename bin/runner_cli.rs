@@ -1,5 +1,6 @@
 //! Run stuff in a CLI
 
+use crate::ExportType;
 use benchmarker::{
     bencher::Builder,
     io::{export_csv, export_html},
@@ -40,40 +41,7 @@ pub struct FullCLIArgs {
     export_trace_name: Option<String>,
 }
 
-#[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
-#[allow(clippy::upper_case_acronyms)]
-///The format to export to
-pub enum ExportType {
-    ///HTML graph
-    HTML,
-    ///CSV file with everything
-    CSV,
-}
-
-impl ExportType {
-    ///Export to the relevant format
-    pub fn export(
-        self,
-        trace_name: String,
-        runs: Vec<u128>,
-        export_file_name: String,
-    ) -> io::Result<usize> {
-        match self {
-            Self::HTML => export_html(
-                Some((trace_name, runs)),
-                export_file_name,
-                Vec::<String>::new(),
-            ),
-            Self::CSV => export_csv(
-                Some((trace_name, runs)),
-                export_file_name,
-                Vec::<String>::new(),
-            ),
-        }
-    }
-}
-
-#[instrument]
+///Run the runner CLI
 pub fn run(
     FullCLIArgs {
         binary,
@@ -86,11 +54,11 @@ pub fn run(
     }: FullCLIArgs,
 ) {
     let export_out_file = export_out_file.unwrap_or_else(|| {
-        binary
+        let bin_name = binary
             .file_name()
             .and_then(OsStr::to_str)
-            .unwrap_or("bench_results")
-            .into()
+            .unwrap_or("bench_results");
+        format!("{bin_name}_{runs}")
     });
     let export_trace_name = export_trace_name.unwrap_or_else(|| export_out_file.clone());
 
@@ -161,7 +129,7 @@ pub fn run(
 
 ///Spawns a channel to read from stdin without blocking the main thread
 ///
-///From: https://stackoverflow.com/questions/30012995/how-can-i-read-non-blocking-from-stdin
+///From: <https://stackoverflow.com/questions/30012995/how-can-i-read-non-blocking-from-stdin>
 fn spawn_stdin_channel() -> Receiver<String> {
     let (tx, rx) = channel::<String>();
     std::thread::spawn(move || loop {

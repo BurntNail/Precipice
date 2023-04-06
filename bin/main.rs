@@ -8,14 +8,16 @@
 //! This is precipice - a binary to benchmark stuff
 
 use crate::{
-    exporter_gui::ExporterApp,
-    runner_cli::{run, FullCLIArgs},
+    exporter_cli::ExporterCLIArgs, exporter_gui::ExporterApp, runner_cli::FullCLIArgs,
     runner_gui::BencherApp,
 };
-use clap::Parser;
+use benchmarker::io::{export_csv, export_html};
+use clap::{Parser, ValueEnum};
+use std::io;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use tracing_tree::HierarchicalLayer;
 
+mod exporter_cli;
 mod exporter_gui;
 mod runner_cli;
 mod runner_gui;
@@ -32,7 +34,7 @@ pub enum Args {
     ///Make runs and quickly export them in a GUI
     RunnerGUI,
     ///Collate together different runs in a CLI
-    ExporterCLI,
+    ExporterCLI(ExporterCLIArgs),
     ///Make runs and quickly export them in a CLI
     RunnerCLI(FullCLIArgs),
 }
@@ -48,12 +50,12 @@ fn main() {
         .init();
 
     match Args::parse() {
-        Args::ExporterCLI => todo!("Exporter Cli"),
-        Args::RunnerCLI(args) => run(args),
+        Args::ExporterCLI(args) => exporter_cli::run(args),
+        Args::RunnerCLI(args) => runner_cli::run(args),
         Args::ExporterGUI => {
             eframe::run_native(
                 //Run a new native window with default options, and the BencherApp
-                "Benchmarker Exporter",
+                "Precipice Exporter",
                 eframe::NativeOptions::default(),
                 Box::new(|cc| Box::new(ExporterApp::new(cc.storage))),
             )
@@ -62,11 +64,47 @@ fn main() {
         Args::RunnerGUI => {
             eframe::run_native(
                 //Run a new native window with default options, and the BencherApp
-                "Benchmarker",
+                "Precipice Runner",
                 eframe::NativeOptions::default(),
                 Box::new(|cc| Box::new(BencherApp::new(cc))),
             )
             .expect("Error with eframe");
+        }
+    }
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
+#[allow(clippy::upper_case_acronyms)]
+///The format to export to
+pub enum ExportType {
+    ///HTML graph
+    HTML,
+    ///CSV file with everything
+    CSV,
+}
+
+impl ExportType {
+    ///Export to the relevant format
+    ///
+    /// # Errors
+    /// If we can't write to or create the file
+    pub fn export(
+        self,
+        trace_name: String,
+        runs: Vec<u128>,
+        export_file_name: String,
+    ) -> io::Result<usize> {
+        match self {
+            Self::HTML => export_html(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(),
+            ),
+            Self::CSV => export_csv(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(),
+            ),
         }
     }
 }
