@@ -1,15 +1,12 @@
 //! Run stuff in a CLI
 
 use crate::ExportType;
-use benchmarker::{
-    bencher::Builder,
-    io::{export_csv, export_html},
-};
-use clap::{Parser, ValueEnum};
+use benchmarker::bencher::Builder;
+use clap::{Parser};
 use indicatif::ProgressBar;
 use std::{
     ffi::OsStr,
-    io::{self, stdin},
+    io::{stdin},
     path::PathBuf,
     sync::mpsc::{channel, Receiver},
     time::Duration,

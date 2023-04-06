@@ -39,6 +39,9 @@ pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>
 }
 
 ///Getting multiple traces from multiple files in CSV format
+///
+/// # Errors
+/// If we can't do something with the file
 pub fn get_traces(
     trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
     trace: Option<(String, Vec<u128>)>,

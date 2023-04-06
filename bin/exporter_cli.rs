@@ -6,6 +6,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Parser)]
+///CLI Arguments for the Exporter
 pub struct ExporterCLIArgs {
     ///List of input CSV files to pull from
     #[arg(long, short)]
@@ -18,6 +19,7 @@ pub struct ExporterCLIArgs {
     pub output_ty: ExportType,
 }
 
+///Run the CLI exporter
 pub fn run(
     ExporterCLIArgs {
         input,
