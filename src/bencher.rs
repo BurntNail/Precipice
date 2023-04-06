@@ -36,7 +36,7 @@ use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
-    io::{Stdout, Write},
+    io::Write,
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::mpsc::{channel, Receiver},

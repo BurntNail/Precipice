@@ -6,7 +6,13 @@ use benchmarker::{
 };
 use clap::{Parser, ValueEnum};
 use indicatif::ProgressBar;
-use std::{ffi::OsStr, io, path::PathBuf, time::Duration};
+use std::{
+    ffi::OsStr,
+    io::{self, stdin},
+    path::PathBuf,
+    sync::mpsc::{channel, Receiver},
+    time::Duration,
+};
 
 /// The CLI args for running stuff
 #[derive(Clone, Debug, Parser)]
@@ -90,7 +96,12 @@ pub fn run(
 
     let mut found_runs = vec![];
 
-    let mut builder = Builder::new().binary(binary).runs(runs).with_warmup(warmup);
+    let (stop_tx, stop_rx) = channel();
+    let mut builder = Builder::new()
+        .binary(binary)
+        .runs(runs)
+        .with_warmup(warmup)
+        .stop_channel(stop_rx);
     if let Some(cli_args) = cli_args {
         if !cli_args.is_empty() {
             builder = builder.with_cli_args(cli_args.split(' ').map(ToString::to_string).collect());
@@ -99,7 +110,10 @@ pub fn run(
 
     let (handle, rx) = builder.start().expect("unable to start builder");
 
+    std::thread::sleep(std::time::Duration::from_millis(100)); //wait to make sure we have the pb under the warmup
+
     let pb = ProgressBar::new(runs as u64);
+    let stdin_nb = spawn_stdin_channel();
 
     while !handle.is_finished() {
         let mut delta = 0;
@@ -108,11 +122,17 @@ pub fn run(
             delta += 1;
         }
         pb.inc(delta);
+
+        if stdin_nb.try_iter().next().is_some() {
+            println!("Stopping early");
+            stop_tx.send(()).expect("error sending stop message");
+            break;
+        }
     }
     handle
         .join()
         .expect("unable to join handle")
-        .expect("error in handle");
+        .expect("error from inside handle");
 
     let (mean, standard_deviation) = {
         let len = found_runs.len() as f64;
@@ -125,7 +145,7 @@ pub fn run(
         }
 
         let mean = (sum as f64) / len;
-        let variance = mean.mul_add(-mean, (sum_of_squares as f64) / len); //(sum_of_squares as f64) / len - mean.powi(2);
+        let variance = mean.mul_add(-mean, (sum_of_squares as f64) / len); //(sum_of_squares as f64) / len - mean.powi(2); mean of squares - square of mean
 
         (
             Duration::from_secs_f64(mean / 1_000_000.0),
@@ -136,5 +156,18 @@ pub fn run(
     let n = export_ty.export(export_trace_name, found_runs, export_out_file);
 
     info!(?n, "Finished exporting");
-    info!(?mean, ?standard_deviation);
+    println!("End Result: {mean:.3?} ± {standard_deviation:.3?}");
+}
+
+///Spawns a channel to read from stdin without blocking the main thread
+///
+///From: https://stackoverflow.com/questions/30012995/how-can-i-read-non-blocking-from-stdin
+fn spawn_stdin_channel() -> Receiver<String> {
+    let (tx, rx) = channel::<String>();
+    std::thread::spawn(move || loop {
+        let mut buffer = String::new();
+        stdin().read_line(&mut buffer).unwrap();
+        tx.send(buffer).unwrap();
+    });
+    rx
 }
