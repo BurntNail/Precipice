@@ -1,23 +1,69 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
-#![allow(clippy::cast_precision_loss)]
+use clap::{Parser, ValueEnum};
+use std::{ffi::OsStr, io};
 
-mod cli_args;
-
-use benchmarker::bencher::Builder;
-use clap::Parser;
-use cli_args::Args;
+use benchmarker::{
+    bencher::Builder,
+    io::{export_csv, export_html},
+};
 use indicatif::ProgressBar;
-use std::{ffi::OsStr, time::Duration};
-use tracing::{dispatcher::set_global_default, info, Level};
-use tracing_subscriber::FmtSubscriber;
+use std::{path::PathBuf, time::Duration};
 
-fn main() {
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .finish(); //build a console output formatter that only outputs if the level is >= INFO
-    set_global_default(subscriber.into()).expect("setting default subscriber failed"); //set the global subscriber to be that subscriber
+#[derive(Clone, Debug, Parser)]
+pub struct FullCLIArgs {
+    ///The actual binary to run
+    #[arg(short, long)]
+    binary: PathBuf,
+    ///The CLI arguments to pass to the binary
+    #[arg(short, long)]
+    cli_args: Option<String>,
+    ///The number of runs (excluding warm-up runs)
+    #[arg(short, long, default_value_t = 10_000)]
+    runs: usize,
+    ///Whether or not console output from the binary should be shown in the CLI
+    #[arg(short, long, default_value_t = false)]
+    show_output_in_console: bool,
+    ///How to export the data - a csv with the microsecond values, or an HTML graph
+    #[arg(value_enum, short = 't', long, default_value_t = ExportType::CSV)]
+    export_ty: ExportType,
+    ///The file to export to, without extension. This defaults to the binary's name
+    #[arg(short = 'f', long)]
+    export_out_file: Option<String>,
+    ///The trace name to export as. This is the name of the line in the HTML graph and defaults to the binary's name
+    #[arg(short = 'n', long)]
+    export_trace_name: Option<String>,
+}
 
-    let Args {
+#[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum ExportType {
+    HTML,
+    CSV,
+}
+
+impl ExportType {
+    pub fn export(
+        self,
+        trace_name: String,
+        runs: Vec<u128>,
+        export_file_name: String,
+    ) -> io::Result<usize> {
+        match self {
+            Self::HTML => export_html(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(),
+            ),
+            Self::CSV => export_csv(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(),
+            ),
+        }
+    }
+}
+
+pub fn run(
+    FullCLIArgs {
         binary,
         cli_args,
         runs,
@@ -25,8 +71,8 @@ fn main() {
         export_ty,
         export_out_file,
         export_trace_name,
-    } = Args::parse();
-
+    }: FullCLIArgs,
+) {
     let export_out_file = export_out_file.unwrap_or_else(|| {
         binary
             .file_name()

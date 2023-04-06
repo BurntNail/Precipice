@@ -14,7 +14,6 @@ use std::{
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
 };
-use tracing::{error, info, warn};
 
 ///Struct for an [`eframe::App`] for exports.
 pub struct ExporterApp {

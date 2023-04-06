@@ -15,7 +15,7 @@ use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
 use std::{
-    io::{self},
+    io,
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
     thread::JoinHandle,
@@ -204,7 +204,8 @@ impl App for BencherApp {
                     if binary.is_some() {
                         let runs = runs_input.parse::<usize>();
                         if let Ok(runs) = runs {
-                            if runs > 0 { //only if we have >0 runs, can we actually start the runs - if you want to deal with exports use that program not this one
+                            if runs > 0 {
+                                //only if we have >0 runs, can we actually start the runs - if you want to deal with exports use that program not this one
                                 ui.separator();
                                 if ui.button("Go!").clicked() {
                                     //only make a button if we have a valid runs, and we have a binary
@@ -339,7 +340,8 @@ impl App for BencherApp {
 
                     if ui.button("Go back to start").clicked() {
                         info!("Going back to start");
-                        change = Some(Self::default_state_from_cc(frame.storage())); //option for going back to the start
+                        change = Some(Self::default_state_from_cc(frame.storage()));
+                        //option for going back to the start
                     }
 
                     //if we aren't currently exporting
@@ -374,7 +376,8 @@ impl App for BencherApp {
                                 let extra_traces = extra_traces.backing_vec();
 
                                 *export_handle = Some(std::thread::spawn(move || {
-                                    export_csv( //start a CSV export
+                                    export_csv(
+                                        //start a CSV export
                                         Some((
                                             trace_name_input,
                                             run_times
@@ -398,7 +401,8 @@ impl App for BencherApp {
                                 let extra_traces = extra_traces.backing_vec();
 
                                 *export_handle = Some(std::thread::spawn(move || {
-                                    export_html(//start an HTML export
+                                    export_html(
+                                        //start an HTML export
                                         Some((
                                             trace_name_input,
                                             run_times
