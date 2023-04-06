@@ -13,8 +13,8 @@ use crate::{
     runner_gui::BencherApp,
 };
 use clap::Parser;
-use tracing::{dispatcher::set_global_default, Level};
-use tracing_subscriber::FmtSubscriber;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_tree::HierarchicalLayer;
 
 mod exporter_gui;
 mod runner_cli;
@@ -25,6 +25,7 @@ extern crate tracing;
 
 #[derive(Clone, Debug, strum::Display, Parser)]
 #[command(author, version, about, long_about = None)]
+///CLI arguments
 pub enum Args {
     ///Collate together different runs in a GUI
     ExporterGUI,
@@ -37,11 +38,14 @@ pub enum Args {
 }
 
 fn main() {
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(Level::INFO)
-        .finish(); //build a console output formatter that only outputs if the level is >= INFO
-    set_global_default(subscriber.into()).expect("setting default subscriber failed");
-    //set the global subscriber to be that subscriber
+    Registry::default()
+        .with(EnvFilter::from_default_env())
+        .with(
+            HierarchicalLayer::new(2)
+                .with_targets(true)
+                .with_bracketed_fields(true),
+        )
+        .init();
 
     match Args::parse() {
         Args::ExporterCLI => todo!("Exporter Cli"),

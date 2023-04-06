@@ -1,5 +1,6 @@
 [package]
 name = "benchmarker"
+authors = ["Jack Maguire/BurntNail - BurntNail@proton.me"]
 description = "Utility for benchmarking arbitrary binaries"
 license = "MIT"
 repository = "https://github.com/BurntNail/Benchmarker.git"
@@ -18,7 +19,8 @@ itertools = "0.10.5"
 plotly = "0.8.3"
 strum = { version = "0.24.1", features = ["derive"] }
 tracing = "0.1.37"
-tracing-subscriber = "0.3.16"
+tracing-subscriber = { version = "0.3.16", features = ["env-filter"] }
+tracing-tree = "0.2.2"
 
 [[bin]]
 name = "precipice"

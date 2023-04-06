@@ -36,12 +36,16 @@ pub struct FullCLIArgs {
 
 #[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
 #[allow(clippy::upper_case_acronyms)]
+///The format to export to
 pub enum ExportType {
+    ///HTML graph
     HTML,
+    ///CSV file with everything
     CSV,
 }
 
 impl ExportType {
+    ///Export to the relevant format
     pub fn export(
         self,
         trace_name: String,
@@ -63,6 +67,7 @@ impl ExportType {
     }
 }
 
+#[instrument]
 pub fn run(
     FullCLIArgs {
         binary,
