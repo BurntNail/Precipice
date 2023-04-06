@@ -1,4 +1,5 @@
-///! Module to deal with imports and exports
+//! Module to deal with imports and exports
+
 use std::fmt::Display;
 use std::{
     fs::{read_to_string, File},

@@ -36,9 +36,9 @@ use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
-    io::{Stdout, Write},
+    io::Write,
     path::PathBuf,
-    process::{Command, Output, Stdio},
+    process::{Command, Output},
     sync::mpsc::{channel, Receiver},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -123,6 +123,7 @@ impl Builder {
     }
 
     ///Panics if elements are not present
+    #[must_use]
     pub fn start(self) -> Option<(JoinHandle<io::Result<()>>, Receiver<Duration>)> {
         //Here we make bindings to lots of the internal variables, returning None if we can't see the ones we need
         let runs = self.runs?;

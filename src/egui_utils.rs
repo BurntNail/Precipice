@@ -2,23 +2,32 @@
 
 use egui::{ScrollArea, Ui};
 use std::{
-    fmt::Debug,
+    fmt::{Debug},
     ops::{Deref, DerefMut},
     vec::IntoIter,
 };
 
+///An enum to represent a change in a list item
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ChangeType {
+    ///An item was removed
     Removed,
-    Reordered
+    ///An item was reordered
+    Reordered,
 }
 
+///A struct to wrap around a [`Vec`], which has utilities related to displaying it in an [`egui`] window.
 #[derive(Debug, Clone)]
 pub struct EguiList<T: Debug> {
+    ///Whether or not the list is displayed in a vertical [`egui::ScrollArea`]. Defaults to `false`
     is_scrollable: bool,
+    ///Whether or not you can remove items from the list. Defaults to `false`
     is_editable: bool,
+    ///Whether or not you can reorder items in the list. Defaults to `false`
     is_reorderable: bool,
+    ///A temporary variable for if we had an update
     had_list_update: Option<ChangeType>,
+    ///The backing list that gets displayed.
     backing: Vec<T>,
 }
 
@@ -35,29 +44,34 @@ impl<T: Debug> Default for EguiList<T> {
 }
 
 impl<T: Debug> EguiList<T> {
+    ///This uses [`std::mem::take`] on the temporary list update variable
     #[must_use]
-    pub fn had_update (&mut self) -> Option<ChangeType> {
+    pub fn had_update(&mut self) -> Option<ChangeType> {
         std::mem::take(&mut self.had_list_update)
     }
 
+    ///Changes whether or not we can scroll - builder pattern
     #[must_use]
     pub const fn is_scrollable(mut self, is_scrollable: bool) -> Self {
         self.is_scrollable = is_scrollable;
         self
     }
 
+    ///Changes whether or not we can remove items - builder pattern
     #[must_use]
     pub const fn is_editable(mut self, is_editable: bool) -> Self {
         self.is_editable = is_editable;
         self
     }
 
+    ///Changes whether or not we can reorder items - builder pattern
     #[must_use]
     pub const fn is_reorderable(mut self, is_reorderable: bool) -> Self {
         self.is_reorderable = is_reorderable;
         self
     }
 
+    ///Inner method for displaying - this way we avoid code duplication around the scroll area.
     fn display_inner(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {
         if self.backing.is_empty() {
             //If we don't have any arguments, then we don't need any of this and some of the logic gets screwed
@@ -110,6 +124,7 @@ impl<T: Debug> EguiList<T> {
         }
     }
 
+    ///Actually displays the items, taking in a closure for how to display the items.
     pub fn display(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {
         if self.is_scrollable {
             ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
@@ -154,6 +169,7 @@ impl<T: Debug> IntoIterator for EguiList<T> {
 }
 
 impl<T: Debug + Clone> EguiList<T> {
+    ///Clones the backing list
     #[must_use]
     pub fn backing_vec(&self) -> Vec<T> {
         self.backing.clone()

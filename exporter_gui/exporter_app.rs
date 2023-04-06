@@ -147,6 +147,7 @@ impl App for ExporterApp {
                         if file.extension() == Some(OsStr::new("csv")) {
                             if self.files.contains(&file) {
                                 if self.remove_existing_files_on_add_existing_file {
+                                    #[allow(clippy::needless_collect)]
                                     let inidicies: Vec<usize> = self
                                         .traces
                                         .iter()
@@ -158,7 +159,7 @@ impl App for ExporterApp {
                                                 None
                                             }
                                         })
-                                        .collect();
+                                        .collect(); //ignore clippy error - we need this to avoid borrow checker stuff. afaik its cheaper to collect and into_iter here, than it is to clone all the traces
                                     for (offset, i) in inidicies.into_iter().enumerate() {
                                         self.traces.remove(i - offset);
                                     }
@@ -224,7 +225,9 @@ impl App for ExporterApp {
             self.traces.push(new_trace);
         }
 
+        #[allow(clippy::single_match)]
         match self.traces.had_update() {
+            //ignore clippy - might be new things in future
             Some(ChangeType::Removed) => {
                 let mut worked = HashSet::with_capacity(self.files.len());
                 for (file, _, _) in self.traces.iter() {
