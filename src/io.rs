@@ -1,7 +1,7 @@
 //! Module to deal with imports and exports
 
-use std::fmt::Display;
 use std::{
+    fmt::Display,
     fs::{read_to_string, File},
     io::{self, Write},
     path::Path,

@@ -1,5 +1,11 @@
-#![warn(clippy::all, clippy::pedantic, clippy::nursery)]
+#![warn(
+    clippy::all,
+    clippy::pedantic,
+    clippy::nursery,
+    clippy::missing_docs_in_private_items
+)]
 #![allow(clippy::too_many_lines, clippy::cast_precision_loss)]
+//! This is precipice - a binary to benchmark stuff
 
 use crate::{
     exporter_gui::ExporterApp,

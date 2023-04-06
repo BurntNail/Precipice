@@ -49,8 +49,8 @@ pub enum State {
         current_cli_arg: String,
         /// `runs_input` stores a temporary [`String`] for user input of the `runs`
         runs_input: String,
-        /// `show_output_in_console` stores a [`bool`] on whether or not to redirect output from the program
-        show_output_in_console: bool,
+        /// `warmup` stores a [`bool`] on whether or not to do a warmup run
+        warmup: bool,
     },
     /// [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
     Running {
@@ -87,12 +87,12 @@ pub enum State {
 }
 
 impl State {
-    ///This creates a new State of [`Self::PreContents`], with an empty `current_cli_arg`, no `binary_dialog` and unwrapping `runs_input` to itself or default and `show_output_in_console` to itself or false.
+    ///This creates a new State of [`Self::PreContents`], with an empty `current_cli_arg`, no `binary_dialog` and unwrapping `runs_input` to itself or default and `warmup` to itself or false.
     fn new(
         binary: Option<PathBuf>,
         cli_args: Vec<String>,
         runs_input: Option<String>,
-        show_output_in_console: Option<bool>,
+        warmup: Option<bool>,
     ) -> Self {
         Self::PreContents {
             binary,
@@ -102,7 +102,7 @@ impl State {
                 .is_editable(true),
             binary_dialog: None,
             runs_input: runs_input.unwrap_or_default(),
-            show_output_in_console: show_output_in_console.unwrap_or(false),
+            warmup: warmup.unwrap_or(false),
         }
     }
 }
@@ -127,11 +127,11 @@ impl BencherApp {
             .unwrap_or_default();
 
         let runs_input = cc.and_then(|s| s.get_string("runs")); //get the runs input
-        let show_output_in_console = cc
-            .and_then(|s| s.get_string("show_output_in_console"))
-            .and_then(|s| s.parse::<bool>().ok()); //if both show_output_in_console is a key, and that evaluates to a bool, then we use Some(that), if not we use None
+        let warmup = cc
+            .and_then(|s| s.get_string("warmup"))
+            .and_then(|s| s.parse::<bool>().ok()); //if both warmup is a key, and that evaluates to a bool, then we use Some(that), if not we use None
 
-        State::new(binary, cli_args, runs_input, show_output_in_console)
+        State::new(binary, cli_args, runs_input, warmup)
     }
 
     ///This creates a new [`BencherApp`], using [`State::new`] from parsing stuff from the [`CreationContext`]'s [`Storage`], which is persistent between shutdowns
@@ -156,7 +156,7 @@ impl App for BencherApp {
                 runs_input,
                 current_cli_arg,
                 cli_args,
-                show_output_in_console,
+                warmup,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("Preparing to Bench"); //title label
@@ -185,7 +185,7 @@ impl App for BencherApp {
                         ui.text_edit_singleline(runs_input);
                     });
 
-                    ui.checkbox(show_output_in_console, "Show output in console");
+                    ui.checkbox(warmup, "Do an initial warmup run.");
 
                     ui.separator();
 
@@ -218,7 +218,7 @@ impl App for BencherApp {
                                         .runs(runs)
                                         .stop_channel(recv_stop)
                                         .with_cli_args(cli_args.backing_vec())
-                                        .with_show_console_output(*show_output_in_console) //Make a new builder using Builder pattern
+                                        .with_warmup(*warmup) //Make a new builder using Builder pattern
                                         .start()
                                     {
                                         change = Some(State::Running {
@@ -468,7 +468,7 @@ impl App for BencherApp {
             binary,
             cli_args,
             runs_input,
-            show_output_in_console,
+            warmup,
             ..
         } = &self.state
         {
@@ -478,7 +478,7 @@ impl App for BencherApp {
             }
             storage.set_string("cli_args", cli_args.join(EGUI_STORAGE_SEPARATOR));
             storage.set_string("runs", runs_input.to_string());
-            storage.set_string("show_output_in_console", show_output_in_console.to_string());
+            storage.set_string("warmup", warmup.to_string());
 
             info!("Saved stuff");
 

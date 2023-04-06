@@ -54,8 +54,8 @@ pub struct Builder {
     runs: Option<usize>,
     ///The channel to stop running
     stop_channel: Option<Receiver<()>>,
-    ///Whether or not to inherit stdout
-    show_output_in_console: bool,
+    ///Whether to run any warmup runs to cache the program
+    warmup: bool,
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
@@ -75,7 +75,7 @@ impl Builder {
             cli_args: vec![],
             runs: None,
             stop_channel: None,
-            show_output_in_console: false,
+            warmup: true,
         }
     }
 
@@ -117,8 +117,8 @@ impl Builder {
 
     ///This sets whether or not we redirect console output, overwriting anything already there
     #[must_use]
-    pub const fn with_show_console_output(mut self, show_output_in_console: bool) -> Self {
-        self.show_output_in_console = show_output_in_console;
+    pub const fn with_warmup(mut self, warmup: bool) -> Self {
+        self.warmup = warmup;
         self
     }
 
@@ -126,15 +126,19 @@ impl Builder {
     #[must_use]
     pub fn start(self) -> Option<(JoinHandle<io::Result<()>>, Receiver<Duration>)> {
         //Here we make bindings to lots of the internal variables, returning None if we can't see the ones we need
-        let runs = self.runs?;
-        let binary = self.binary?;
-        let cli_args = self.cli_args;
-        let stop_recv = self.stop_channel;
-        let show_output_in_console = self.show_output_in_console;
+        let Self {
+            runs,
+            binary,
+            cli_args,
+            stop_channel: stop_recv,
+            warmup,
+        } = self;
+        let runs = runs? - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
+        let binary = binary?;
 
         let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
         let handle = std::thread::spawn(move || {
-            info!(%runs, ?binary, ?cli_args, ?show_output_in_console, "Starting benching.");
+            info!(%runs, ?binary, ?cli_args, ?warmup, "Starting benching.");
 
             let mut command = Command::new(binary);
             command.args(cli_args); //Create a new Command and add our arguments
@@ -143,7 +147,35 @@ impl Builder {
                 command.current_dir(cd); //If we have a current directory, add that to the Command
             }
 
-            let mut start;
+            let mut start = Instant::now();
+
+            {
+                //either the first run, or the warmup run. we always send output from this one.
+                let Output {
+                    status,
+                    stdout,
+                    stderr,
+                } = command.output()?;
+
+                if !warmup {
+                    duration_sender
+                        .send(start.elapsed())
+                        .expect("error sending time");
+                }
+                if !status.success() {
+                    error!(?status, "Initial Command failed");
+                }
+
+                if !stdout.is_empty() {
+                    io::stdout().lock().write_all(&stdout)?;
+                }
+                if !stderr.is_empty() {
+                    io::stderr().lock().write_all(&stderr)?;
+                }
+            }
+
+            command.stdout(Stdio::null()).stderr(Stdio::null());
+
             for chunk_size in (0..runs)
                 .chunks(CHUNK_SIZE)
                 .into_iter()
@@ -159,19 +191,7 @@ impl Builder {
                     for _ in 0..chunk_size {
                         start = Instant::now(); //send the elapsed duration and reset it
 
-                        let (status, stdout, stderr) = {
-                            let Output {
-                                status,
-                                stdout,
-                                stderr,
-                            } = command.output()?;
-
-                            if show_output_in_console {
-                                (status, stdout, stderr)
-                            } else {
-                                (status, vec![], stderr) //always preserve stderr
-                            }
-                        };
+                        let status = command.status()?;
 
                         duration_sender
                             .send(start.elapsed())
@@ -181,13 +201,6 @@ impl Builder {
                             trace!(?status, "Finished command");
                         } else {
                             warn!(?status, "Command failed");
-                        }
-
-                        if !stdout.is_empty() {
-                            io::stdout().lock().write_all(&stdout)?;
-                        }
-                        if !stderr.is_empty() {
-                            io::stderr().lock().write_all(&stderr)?;
                         }
                     }
                 } else {

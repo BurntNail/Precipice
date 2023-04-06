@@ -1,3 +1,5 @@
+//! Export runs in a GUI
+
 use benchmarker::{
     egui_utils::{ChangeType, EguiList},
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},

@@ -1,13 +1,14 @@
-use clap::{Parser, ValueEnum};
-use std::{ffi::OsStr, io};
+//! Run stuff in a CLI
 
 use benchmarker::{
     bencher::Builder,
     io::{export_csv, export_html},
 };
+use clap::{Parser, ValueEnum};
 use indicatif::ProgressBar;
-use std::{path::PathBuf, time::Duration};
+use std::{ffi::OsStr, io, path::PathBuf, time::Duration};
 
+/// The CLI args for running stuff
 #[derive(Clone, Debug, Parser)]
 pub struct FullCLIArgs {
     ///The actual binary to run
@@ -19,9 +20,9 @@ pub struct FullCLIArgs {
     ///The number of runs (excluding warm-up runs)
     #[arg(short, long, default_value_t = 10_000)]
     runs: usize,
-    ///Whether or not console output from the binary should be shown in the CLI
-    #[arg(short, long, default_value_t = false)]
-    show_output_in_console: bool,
+    ///Whether or not we should have a warmup run where the results aren't sent to get the program into the cache
+    #[arg(short, long, default_value_t = true)]
+    warmup: bool,
     ///How to export the data - a csv with the microsecond values, or an HTML graph
     #[arg(value_enum, short = 't', long, default_value_t = ExportType::CSV)]
     export_ty: ExportType,
@@ -67,7 +68,7 @@ pub fn run(
         binary,
         cli_args,
         runs,
-        show_output_in_console,
+        warmup,
         export_ty,
         export_out_file,
         export_trace_name,
@@ -84,10 +85,7 @@ pub fn run(
 
     let mut found_runs = vec![];
 
-    let mut builder = Builder::new()
-        .binary(binary)
-        .runs(runs)
-        .with_show_console_output(show_output_in_console);
+    let mut builder = Builder::new().binary(binary).runs(runs).with_warmup(warmup);
     if let Some(cli_args) = cli_args {
         if !cli_args.is_empty() {
             builder = builder.with_cli_args(cli_args.split(' ').map(ToString::to_string).collect());

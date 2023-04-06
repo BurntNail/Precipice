@@ -2,7 +2,7 @@
 
 use egui::{ScrollArea, Ui};
 use std::{
-    fmt::{Debug},
+    fmt::Debug,
     ops::{Deref, DerefMut},
     vec::IntoIter,
 };
