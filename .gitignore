@@ -209,3 +209,6 @@ Cargo.lock
 
 *.csv
 *.html
+
+bench_mandlebrot.sh
+java_mandlebrot_betta

@@ -10,7 +10,7 @@ pub struct Args {
     #[arg(short, long)]
     pub binary: PathBuf,
     #[arg(short, long)]
-    pub cli_args: Vec<String>,
+    pub cli_args: Option<String>,
     #[arg(short, long, default_value_t = 1000)]
     pub runs: usize,
     #[arg(short, long, default_value_t = false)]

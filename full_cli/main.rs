@@ -27,13 +27,20 @@ fn main() {
 
     let mut found_runs = vec![];
 
-    let (handle, rx) = Builder::new()
+    let mut builder = Builder::new()
         .binary(binary)
-        .with_cli_args(cli_args)
         .runs(runs)
-        .with_show_console_output(show_output_in_console)
-        .start()
-        .expect("unable to start builder");
+        .with_show_console_output(show_output_in_console);
+    if let Some(cli_args) = cli_args {
+        builder = builder.with_cli_args(
+            cli_args
+                .split(" ")
+                .map(ToString::to_string)
+                .collect(),
+        )
+    }
+
+    let (handle, rx) = builder.start().expect("unable to start builder");
 
     let pb = ProgressBar::new(runs as u64);
 
