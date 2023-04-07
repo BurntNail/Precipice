@@ -6,7 +6,7 @@
 //! Inside the app, we change state on update using an [`Option`] which stores a new state, which gets changed after the match statement on the internal state.
 
 use benchmarker::{
-    bencher::Builder,
+    bencher::Runner,
     egui_utils::EguiList,
     io::{export_csv, export_html},
     EGUI_STORAGE_SEPARATOR,
@@ -32,12 +32,12 @@ pub struct BencherApp {
 
 ///[`State`] has 3 variants - [`State::PreContents`], [`State::Running`], and [`State::PostContents`]
 ///
-/// - [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Builder`].
+/// - [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Runner`].
 /// - [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
 /// - [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
 #[allow(clippy::large_enum_variant)]
 pub enum State {
-    /// [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Builder`].
+    /// [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Runner`].
     PreContents {
         /// `binary` stores an [`Option`] of a [`PathBuf`] which is the binary we are going to run - Optional because the user doesn't have one when they first open the app.
         binary: Option<PathBuf>,
@@ -54,13 +54,13 @@ pub enum State {
     },
     /// [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
     Running {
-        /// `run_times` is a [`EguiList`] of [`Duration`]s that we've received so far from the [`Builder`]
+        /// `run_times` is a [`EguiList`] of [`Duration`]s that we've received so far from the [`Runner`]
         run_times: EguiList<Duration>,
-        /// `stop` is a unit tuple [`Sender`] which allows us to tell the [`Builder`] thread to stop execution as soon as it finishes with the current chunk.
+        /// `stop` is a unit tuple [`Sender`] which allows us to tell the [`Runner`] thread to stop execution as soon as it finishes with the current chunk.
         stop: Sender<()>,
         /// `run_recv` is a [`Receiver`] for getting new [`Duration`]s to send to `run_times`.
         run_recv: Receiver<Duration>,
-        /// `handle` stores a [`JoinHandle`] from [`Builder`], and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
+        /// `handle` stores a [`JoinHandle`] from [`Runner`], and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
         handle: Option<JoinHandle<io::Result<()>>>,
     },
     /// [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
@@ -213,12 +213,7 @@ impl App for BencherApp {
                                     self.runs = runs;
                                     let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Builder thread
 
-                                    if let Some((handle, run_recv)) = Builder::new()
-                                        .binary(binary.clone().unwrap())
-                                        .runs(runs)
-                                        .stop_channel(recv_stop)
-                                        .with_cli_args(cli_args.backing_vec())
-                                        .with_warmup(*warmup) //Make a new builder using Builder pattern
+                                    if let Some((handle, run_recv)) = Runner::new(std::mem::take(binary).unwrap(), cli_args.backing_vec(), runs, Some(recv_stop), *warmup)
                                         .start()
                                     {
                                         change = Some(State::Running {

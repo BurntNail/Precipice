@@ -1,36 +1,20 @@
 //! Module to contain the actual bencher, which runs on its own separate thread.
 //!
-//! A [`Builder`] is used to create the [`JoinHandle`] and [`Receiver`] where you will get the timing durations - when the [`JoinHandle`] is finished, you know you can safely drop the [`Receiver`], or you need to manually count.
+//! A [`Runner`] is used to create the [`JoinHandle`] and [`Receiver`] where you will get the timing durations - when the [`JoinHandle`] is finished, you know you can safely drop the [`Receiver`], or you need to manually count.
 //!
 //! ## Example
 //! ```rust
 //! use std::path::PathBuf;
 //! use std::sync::mpsc::{channel, Receiver, Sender};
-//! use benchmarker::bencher::Builder;
+//! use benchmarker::bencher::Runner;
 //!
-//! let (handle, rx) = Builder::new()
-//!     .binary(PathBuf::from("/bin/echo"))
-//!     .with_cli_arg("hello".into())
-//!     .runs(1_000)
-//!     .start().unwrap();
+//! let (handle, rx) = Runner::new(PathBuf::from("/bin/echo"), vec!["Hello".into()], 1_000, None, true);
 //!
-//! //then, poll the receiver for new durations
-//! //and end the handle when you feel like it
+//! while !handle.is_finished() {
+//!     //add stuff from rx
+//! }
+//! handle.join().unwrap().unwrap();
 //! ```
-//!
-//! ## Usage of Builder
-//! The builder contains the following fields:
-//! - a [`PathBuf`] to store the binary to run
-//! - a [`Vec`] of [`String`]s to store the program's arguments
-//! - an [`usize`] to store how many runs to do
-//! - a [`bool`] to decide whether or not to show the binary's output in this program's console
-//! - a [`Receiver`] to check for signals to stop the program
-//!
-//! You **must** pass in *at the very minimum*:
-//! - the [`PathBuf`] using [`Self::binary`]
-//! - the [`usize`] using [`Self::runs`]
-//!
-//! All of the others are optional
 
 use itertools::Itertools;
 use std::{
@@ -45,96 +29,54 @@ use std::{
 };
 
 ///Struct to build a Bencher - takes in arguments using a builder pattern, then you can start a run.
-pub struct Builder {
+///
+/// No constructor exists - use the struct literal form with [`Default::default`]
+pub struct Runner {
     ///The binary to run
-    binary: Option<PathBuf>,
+    pub binary: PathBuf,
     ///The args to pass to the binary
-    cli_args: Vec<String>,
+    pub cli_args: Vec<String>,
     ///The number of runs
-    runs: Option<usize>,
+    pub runs: usize,
     ///The channel to stop running
-    stop_channel: Option<Receiver<()>>,
+    pub stop_rx: Option<Receiver<()>>,
     ///Whether to run any warmup runs to cache the program
-    warmup: bool,
+    pub warmup: bool,
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
 const CHUNK_SIZE: usize = 25;
 
-impl Builder {
-    ///Creates a default builder:
-    ///
-    /// - `binary` is `None`
-    /// - `cli_args` is empty
-    /// - `runs` is `None`
-    /// - `stop_channel` is None,
+impl Runner {
+    ///Constructor
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new(
+        binary: PathBuf,
+        cli_args: Vec<String>,
+        runs: usize,
+        stop_rx: Option<Receiver<()>>,
+        warmup: bool,
+    ) -> Self {
         Self {
-            binary: None,
-            cli_args: vec![],
-            runs: None,
-            stop_channel: None,
-            warmup: true,
+            binary,
+            cli_args,
+            runs,
+            stop_rx,
+            warmup,
         }
     }
 
-    ///This sets the binary to run, overwriting anything already there
-    #[allow(clippy::missing_const_for_fn)] //pathbuf destructor not at compiletime
-    #[must_use]
-    pub fn binary(mut self, string: PathBuf) -> Self {
-        self.binary = Some(string);
-        self
-    }
-
-    ///This sets the number of times to run the program, overwriting anything already there
-    #[must_use]
-    pub const fn runs(mut self, runs: usize) -> Self {
-        self.runs = Some(runs);
-        self
-    }
-
-    ///This adds a stop channel, overwriting anything already there
-    #[must_use]
-    pub fn stop_channel(mut self, stop_channel: Receiver<()>) -> Self {
-        self.stop_channel = Some(stop_channel);
-        self
-    }
-
-    ///This adds an argument to the list, adding to the existing ones
-    #[must_use]
-    pub fn with_cli_arg(mut self, arg: String) -> Self {
-        self.cli_args.push(arg);
-        self
-    }
-
-    ///This adds a number of new arguments to the list, adding to the existing ones
-    #[must_use]
-    pub fn with_cli_args(mut self, mut args: Vec<String>) -> Self {
-        self.cli_args.append(&mut args);
-        self
-    }
-
-    ///This sets whether or not we redirect console output, overwriting anything already there
-    #[must_use]
-    pub const fn with_warmup(mut self, warmup: bool) -> Self {
-        self.warmup = warmup;
-        self
-    }
-
-    ///Panics if elements are not present
+    ///Starts the runner in a new thread
     #[must_use]
     pub fn start(self) -> Option<(JoinHandle<io::Result<()>>, Receiver<Duration>)> {
-        //Here we make bindings to lots of the internal variables, returning None if we can't see the ones we need
         let Self {
             runs,
             binary,
             cli_args,
-            stop_channel: stop_recv,
+            stop_rx: stop_recv,
             warmup,
         } = self;
-        let runs = runs? - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
-        let binary = binary?;
+        let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
 
         let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
         let handle = std::thread::spawn(move || {

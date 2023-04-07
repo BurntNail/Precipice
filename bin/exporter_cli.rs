@@ -11,11 +11,11 @@ pub struct ExporterCLIArgs {
     ///List of input CSV files to pull from
     #[arg(long, short)]
     pub input: Vec<PathBuf>,
-    ///Output file name
+    ///The file to export to, without extension
     #[arg(long, short, default_value_t = String::from("precipice_bench"))]
     pub output_without_extension: String,
-    ///Output type
-    #[arg(long, short, default_value_t = ExportType::HTML)]
+    ///How to export the data - a csv with the microsecond values, or an HTML graph
+    #[arg(value_enum, short = 't', long, default_value_t = ExportType::HTML)]
     pub output_ty: ExportType,
 }
 
