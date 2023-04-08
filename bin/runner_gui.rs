@@ -15,6 +15,7 @@ use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
 use std::{
+    ffi::OsStr,
     io,
     path::PathBuf,
     sync::mpsc::{channel, Receiver, Sender},
@@ -62,6 +63,8 @@ pub enum State {
         run_recv: Receiver<Duration>,
         /// `handle` stores a [`JoinHandle`] from [`Runner`], and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
         handle: Option<JoinHandle<io::Result<()>>>,
+        ///`binary` stores a [`PathBuf`] with the binary we're running
+        binary: PathBuf,
     },
     /// [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
     PostContents {
@@ -213,8 +216,14 @@ impl App for BencherApp {
                                     self.runs = runs;
                                     let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Builder thread
 
-                                    if let Some((handle, run_recv)) = Runner::new(std::mem::take(binary).unwrap(), cli_args.backing_vec(), runs, Some(recv_stop), *warmup)
-                                        .start()
+                                    if let Some((handle, run_recv)) = Runner::new(
+                                        binary.clone().unwrap(),
+                                        cli_args.backing_vec(),
+                                        runs,
+                                        Some(recv_stop),
+                                        *warmup,
+                                    )
+                                    .start()
                                     {
                                         change = Some(State::Running {
                                             //make a new State with the relevant variables
@@ -222,6 +231,7 @@ impl App for BencherApp {
                                             stop: send_stop,
                                             run_recv,
                                             handle: Some(handle),
+                                            binary: std::mem::take(binary).unwrap(),
                                         });
                                     } else {
                                         warn!("Tried to start Builder with missing variables...");
@@ -254,6 +264,7 @@ impl App for BencherApp {
                 stop,
                 run_recv,
                 handle,
+                binary,
             } => {
                 for time in run_recv.try_iter() {
                     //for every message since we last checked, add it to the buffer
@@ -278,6 +289,14 @@ impl App for BencherApp {
                         run_times.iter().sum::<Duration>() / (run_times.len() as u32)
                     }; //calc min/max/avg
 
+                    let file_name = format!(
+                        "{}_{}",
+                        binary
+                            .file_name()
+                            .and_then(OsStr::to_str)
+                            .unwrap_or("bench_results"),
+                        run_times.len()
+                    );
                     change = Some(State::PostContents {
                         //new state
                         run_times: run_times.clone(),
@@ -285,8 +304,8 @@ impl App for BencherApp {
                         max,
                         avg,
                         export_handle: None,
-                        file_name_input: "results".into(),
-                        trace_name_input: "trace".into(),
+                        file_name_input: file_name.clone(),
+                        trace_name_input: file_name,
                         extra_trace_names_dialog: None,
                         extra_traces: EguiList::default(), //TODO: cache this over time with the others
                     });
@@ -298,7 +317,7 @@ impl App for BencherApp {
                         ui.label(format!("{} runs left.", self.runs - runs_so_far));
                         ui.separator();
 
-                        run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}")); //display all runs
+                        run_times.display(ui, |dur, i| format!("Run {} took {dur:?}", i + 1)); //display all runs
                         ui.separator();
 
                         ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui); //show all runs and add progress bar

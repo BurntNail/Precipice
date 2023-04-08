@@ -22,7 +22,7 @@ pub struct FullCLIArgs {
     #[arg(short, long)]
     cli_args: Option<String>,
     ///The number of runs (excluding warm-up runs)
-    #[arg(short, long, default_value_t = 10_000)]
+    #[arg(short, long, default_value_t = 1_000)]
     runs: usize,
     ///Whether or not we should have a warmup run where the results aren't sent to get the program into the cache
     #[arg(short = 'w', long, default_value_t = false)]
@@ -65,13 +65,15 @@ pub fn run(
         _ => vec![],
     };
 
+    println!("Benching {binary:?} with {cli_args:?}, for {runs} to {export_ty}.");
+
     let (stop_tx, stop_rx) = channel();
     let mut found_runs = vec![];
     let (handle, rx) = Runner::new(binary, cli_args, runs, Some(stop_rx), !no_warmup)
         .start()
         .expect("unable to start builder");
 
-    std::thread::sleep(std::time::Duration::from_millis(50)); //wait to make sure we have the pb under the warmup
+    std::thread::sleep(Duration::from_millis(50)); //wait to make sure we have the pb under the warmup
 
     let pb = ProgressBar::new(runs as u64);
     let stdin_nb = spawn_stdin_channel();
