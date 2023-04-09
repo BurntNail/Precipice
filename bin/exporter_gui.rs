@@ -25,12 +25,8 @@ pub struct ExporterApp {
     traces: EguiList<(PathBuf, String, Vec<u128>)>,
     ///File dialog for adding new files for traces
     add_file_dialog: Option<FileDialog>,
-    ///Handle to the thread that loads all of the files
-    loader_thread: Option<JoinHandle<()>>,
     ///Sender for files to the loader thread
     file_tx: Sender<PathBuf>,
-    ///Sender to stop the loader thread - if it receives this, it should break all loops
-    stop_tx: Sender<()>,
     ///Receiver to get back traces from the loader thread
     trace_rx: Receiver<(PathBuf, String, Vec<u128>)>,
     ///The name to export the resulting file to, excluding extensions
@@ -75,9 +71,13 @@ impl ExporterApp {
         let (stop_tx, stop_rx) = channel();
         let (trace_tx, trace_rx) = channel();
 
-        let handle = std::thread::spawn(move || {
-            handle_loading(file_rx, stop_rx, trace_tx);
-        });
+        std::thread::Builder::new() //make a new thread for handling the loading of new files
+            .name("exporter_file_loader".into()) //we send files to the thread
+            .spawn(move || {
+                //then it sends traces back to us
+                handle_loading(file_rx, trace_tx); //and stops if we tell it
+            })
+            .expect("error creating thread");
 
         for file in &files {
             file_tx
@@ -89,9 +89,7 @@ impl ExporterApp {
             files,
             traces: EguiList::default().is_scrollable(true).is_editable(true),
             add_file_dialog: None,
-            loader_thread: Some(handle),
             file_tx,
-            stop_tx,
             trace_rx,
             export_name: String::default(),
             remove_existing_files_on_add_existing_file: false,
@@ -101,26 +99,20 @@ impl ExporterApp {
 
 ///This is the meat and potatoes of the loader thread - it basically just waits for files to arrive and parses all of them, and then repeats. If it sees the `stop_rx` complaining, then it stops.
 #[allow(clippy::needless_pass_by_value)]
-fn handle_loading(
-    file_rx: Receiver<PathBuf>,
-    stop_rx: Receiver<()>,
-    trace_tx: Sender<(PathBuf, String, Vec<u128>)>,
-) {
-    while stop_rx.try_recv().is_err() {
-        while let Ok(file) = file_rx.try_recv() {
-            match import_csv(file.clone()) {
-                Ok(traces) => {
-                    for (name, list) in traces {
-                        trace_tx
-                            .send((file.clone(), name, list))
-                            .expect("unable to send new trace");
-                    }
+fn handle_loading(file_rx: Receiver<PathBuf>, trace_tx: Sender<(PathBuf, String, Vec<u128>)>) {
+    while let Ok(file) = file_rx.try_recv() {
+        match import_csv(file.clone()) {
+            Ok(traces) => {
+                for (name, list) in traces {
+                    trace_tx
+                        .send((file.clone(), name, list))
+                        .expect("unable to send new trace");
                 }
-                Err(e) => {
-                    error!(?e, "Error reading traces");
-                }
-            };
-        }
+            }
+            Err(e) => {
+                error!(?e, "Error reading traces");
+            }
+        };
     }
 }
 impl App for ExporterApp {
@@ -256,12 +248,5 @@ impl App for ExporterApp {
             })
             .join(EGUI_STORAGE_SEPARATOR);
         storage.set_string("files", files_to_save);
-    }
-
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        let _ = self.stop_tx.send(()); //only errors are around dropped threads - here thats a pro not a con
-        if let Some(handle) = std::mem::take(&mut self.loader_thread) {
-            handle.join().expect("unable to join loader handle");
-        }
     }
 }
