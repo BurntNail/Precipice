@@ -6,7 +6,7 @@
 //! Inside the app, we change state on update using an [`Option`] which stores a new state, which gets changed after the match statement on the internal state.
 
 use benchmarker::{
-    bencher::Runner,
+    bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS},
     egui_utils::EguiList,
     io::{export_csv, export_html},
     EGUI_STORAGE_SEPARATOR,
@@ -14,6 +14,7 @@ use benchmarker::{
 use eframe::{App, CreationContext, Frame, Storage};
 use egui::{CentralPanel, Context, ProgressBar, Widget};
 use egui_file::FileDialog;
+use itertools::Itertools;
 use std::{
     ffi::OsStr,
     io,
@@ -31,15 +32,15 @@ pub struct BencherApp {
     state: State,
 }
 
-///[`State`] has 3 variants - [`State::PreContents`], [`State::Running`], and [`State::PostContents`]
+///[`State`] has 3 variants - [`State::Setup`], [`State::Running`], and [`State::Finished`]
 ///
-/// - [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Runner`].
+/// - [`State::Setup`] represents the state whilst we're grabbing arguments for the [`Runner`].
 /// - [`State::Running`] represents the state whilst we're actively running the binary and keeps track of the runs and getting them.
 /// - [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
 #[allow(clippy::large_enum_variant)]
 pub enum State {
-    /// [`State::PreContents`] represents the state whilst we're grabbing arguments for the [`Runner`].
-    PreContents {
+    /// [`State::Setup`] represents the state whilst we're grabbing arguments for the [`Runner`].
+    Setup {
         /// `binary` stores an [`Option`] of a [`PathBuf`] which is the binary we are going to run - Optional because the user doesn't have one when they first open the app.
         binary: Option<PathBuf>,
         /// `binary_dialog` stores an [`Option`] of a [`FileDialog`] which is the Dialog object from [`egui_file`] that lets a user pick a file - NB: no validation on whether or not it is a binary
@@ -67,15 +68,17 @@ pub enum State {
         binary: PathBuf,
     },
     /// [`State:PostContents`] represents what we're doing when we've finished - displaying results and stats as well as exporting.
-    PostContents {
+    Finished {
         /// `run_times` is a [`EguiList`] of [`Duration`]s from the binary run times. If this changes - we need to update `min`, `max`, and `avg`
         run_times: EguiList<Duration>,
         /// `min` is the smallest [`Duration`] from `run_times`
         min: Duration,
         /// `max` is the biggest [`Duration`] from `run_times`
         max: Duration,
-        /// `avg` is the mean [`Duration`] from `run_times`
-        avg: Duration,
+        /// `mean` is the mean [`Duration`] from `run_times`
+        mean: Duration,
+        /// `standard_deviation` is the population standard deviation [`Duration`] from `run_times`
+        standard_deviation: Duration,
         /// `export_handle`stores a [`JoinHandle`] from exporting `run_times` to a CSV to avoid blocking in immediate mode and is an [`Option`] to allow us to join the handle when it finishes as that requires ownership.
         export_handle: Option<JoinHandle<io::Result<usize>>>,
         /// `file_name_input` stores a temporary variable to decide the name of the file name
@@ -85,63 +88,70 @@ pub enum State {
         /// File dialog for extra trace names
         extra_trace_names_dialog: Option<FileDialog>,
         /// [`EguiList`] for trace names
-        extra_traces: EguiList<PathBuf>,
+        extra_files: EguiList<PathBuf>,
     },
 }
 
 impl State {
-    ///This creates a new State of [`Self::PreContents`], with an empty `current_cli_arg`, no `binary_dialog` and unwrapping `runs_input` to itself or default and `warmup` to itself or false.
-    fn new(
+    ///This creates a new State of [`Self::Setup`], with an empty `current_cli_arg`, no `binary_dialog` and unwrapping `runs_input` to itself or default and `warmup` to itself or false.
+    #[instrument]
+    fn new_from_args(
         binary: Option<PathBuf>,
         cli_args: Vec<String>,
         runs_input: Option<String>,
         warmup: Option<bool>,
     ) -> Self {
-        Self::PreContents {
+        Self::Setup {
             binary,
             current_cli_arg: String::default(),
             cli_args: EguiList::from(cli_args)
                 .is_reorderable(true)
                 .is_editable(true),
             binary_dialog: None,
-            runs_input: runs_input.unwrap_or_default(),
+            runs_input: runs_input.unwrap_or_else(|| DEFAULT_RUNS.to_string()),
             warmup: warmup.unwrap_or(false),
         }
     }
 }
 
-impl BencherApp {
+impl<'a> From<Option<&'a dyn Storage>> for State {
     ///This uses the [`CreationContext`]'s persistent [`Storage`] to build a default state
-    fn default_state_from_cc(cc: Option<&dyn Storage>) -> State {
+    #[instrument(skip(cc))]
+    fn from(cc: Option<&'a dyn Storage>) -> Self {
         let binary = cc
-            .and_then(|s| s.get_string("binary_path"))
-            .map(PathBuf::from); //get the binary path and make it into a PathBuf
+            .and_then(|s| s.get_string("binary_path")) //if we've got a creation context, grab the binary path
+            .map(PathBuf::from); //and turn it into a path
         let cli_args: Vec<String> = cc
-            .and_then(|s| s.get_string("cli_args"))
+            .and_then(|s| s.get_string("cli_args")) //if we've got a creation context, grab the cli args
             .map(|s| {
                 if s.is_empty() {
+                    //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
                     vec![]
                 } else {
-                    s.split(EGUI_STORAGE_SEPARATOR)
+                    s.split(EGUI_STORAGE_SEPARATOR) //if not, then split into a string by the separator
                         .map(ToString::to_string)
-                        .collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
+                        .collect()
                 }
             })
-            .unwrap_or_default();
+            .unwrap_or_default(); //if we didn't get any cli args, just set it to a new vector
 
         let runs_input = cc.and_then(|s| s.get_string("runs")); //get the runs input
         let warmup = cc
             .and_then(|s| s.get_string("warmup"))
             .and_then(|s| s.parse::<bool>().ok()); //if both warmup is a key, and that evaluates to a bool, then we use Some(that), if not we use None
 
-        State::new(binary, cli_args, runs_input, warmup)
+        Self::new_from_args(binary, cli_args, runs_input, warmup)
     }
+}
 
-    ///This creates a new [`BencherApp`], using [`State::new`] from parsing stuff from the [`CreationContext`]'s [`Storage`], which is persistent between shutdowns
+impl BencherApp {
+    ///This creates a new [`BencherApp`], using [`State::from`] from parsing stuff from the [`CreationContext`]'s [`Storage`], which is persistent between shutdowns
+    #[instrument(skip(cc))]
     pub fn new(cc: &CreationContext) -> Self {
+        //turns the storage into a state
         Self {
             runs: 0,
-            state: Self::default_state_from_cc(cc.storage),
+            state: cc.storage.into(),
         }
     }
 }
@@ -149,11 +159,13 @@ impl BencherApp {
 impl App for BencherApp {
     #[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
     fn update(&mut self, ctx: &Context, frame: &mut Frame) {
+        //TODO: put this across different methods for each state
         let mut change = None; //Variable to store a new State if we want to change
 
-        //Huge match statement on our current state, mutably
+        //**Huge** match statement on our current state, mutably
         match &mut self.state {
-            State::PreContents {
+            State::Setup {
+                //if we are setting up
                 binary,
                 binary_dialog,
                 runs_input,
@@ -162,6 +174,7 @@ impl App for BencherApp {
                 warmup,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
+                    //new central panel
                     ui.label("Preparing to Bench"); //title label
                     ui.separator();
 
@@ -174,10 +187,11 @@ impl App for BencherApp {
 
                     let clicked = ui.button("Change file").clicked(); //to avoid short-circuiting not showing the button
                     if clicked && binary_dialog.is_none() {
-                        info!(binary=?binary.clone(), "Showing File Dialog");
-                        let mut dialog = FileDialog::open_file(binary.clone());
-                        dialog.open(); //make a new file dialog, open it, and then save it to the State
-                        *binary_dialog = Some(dialog);
+                        //if we clicked it, and we don't currently have a dialog open
+                        trace!(current_binary=?binary.clone(), "Showing File Dialog");
+                        let mut dialog = FileDialog::open_file(binary.clone()); //open a dialog at the location of the current binary, and if we don't have one, its an option so we're all fine
+                        dialog.open(); //open the dialog
+                        *binary_dialog = Some(dialog); //and save it to the state
                     }
 
                     ui.separator();
@@ -188,78 +202,78 @@ impl App for BencherApp {
                         ui.text_edit_singleline(runs_input);
                     });
 
-                    ui.checkbox(warmup, "Do an initial warmup run.");
+                    ui.checkbox(warmup, "Do an initial warmup run."); //checkbox for whether or not we do a warmup run
 
                     ui.separator();
 
                     ui.label("CLI Arguments");
-                    cli_args.display(ui, |arg, _i| arg.to_string()); //display all the CLI arguments, not caring about indicies
+                    cli_args.display(ui, |arg, _i| arg.to_string()); //display all the CLI arguments, not displaying indicies
 
                     ui.horizontal(|ui| {
                         ui.label("New Argument");
-                        ui.text_edit_singleline(current_cli_arg);
+                        ui.text_edit_singleline(current_cli_arg); //text edit for new argument
                     });
                     if ui.button("Submit new argument!").clicked() {
-                        cli_args.push(current_cli_arg.clone());
-                        current_cli_arg.clear();
+                        //if we click the new argument button
+                        cli_args.push(std::mem::take(current_cli_arg)); //take the current arg - this adds it to the list, and clears the input
                     }
 
                     if binary.is_some() {
-                        let runs = runs_input.parse::<usize>();
-                        if let Ok(runs) = runs {
+                        //if we have a binary
+                        if let Ok(runs) = runs_input.parse::<usize>() {
+                            //and we can successfully parse the runs
                             if runs > 0 {
-                                //only if we have >0 runs, can we actually start the runs - if you want to deal with exports use that program not this one
+                                // and we have >0 runs
                                 ui.separator();
                                 if ui.button("Go!").clicked() {
-                                    //only make a button if we have a valid runs, and we have a binary
-                                    info!("Starting a new run!");
-                                    self.runs = runs;
-                                    let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Builder thread
+                                    //and we click the go button
+                                    trace!("Starting benchmarking");
+                                    self.runs = runs; //set the runner app variable for the runs
+                                    let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Runner thread
 
-                                    if let Some((handle, run_recv)) = Runner::new(
+                                    let (handle, run_recv) = Runner::new(
                                         binary.clone().unwrap(),
                                         cli_args.backing_vec(),
                                         runs,
                                         Some(recv_stop),
                                         *warmup,
                                     )
-                                    .start()
-                                    {
-                                        change = Some(State::Running {
-                                            //make a new State with the relevant variables
-                                            run_times: EguiList::default().is_scrollable(true),
-                                            stop: send_stop,
-                                            run_recv,
-                                            handle: Some(handle),
-                                            binary: std::mem::take(binary).unwrap(),
-                                        });
-                                    } else {
-                                        warn!("Tried to start Builder with missing variables...");
-                                        //If we can't make a builder, then we are missing variables
-                                    }
+                                    .start(); //make a new run and start it
+
+                                    change = Some(State::Running {
+                                        //make a new State with the relevant variables
+                                        run_times: EguiList::default().is_scrollable(true),
+                                        stop: send_stop,
+                                        run_recv,
+                                        handle: Some(handle),
+                                        binary: std::mem::take(binary).unwrap(),
+                                    });
                                 }
                             }
                         }
                     }
                 });
 
-                let mut should_close = false;
+                let mut should_close = false; //temp variable to avoid ownership faff
                 if let Some(dialog) = binary_dialog {
+                    //if we have a dialog
                     if dialog.show(ctx).selected() {
-                        //if we select a file, and it is a file then we need to close the thing (after we can get ownership of it, later), and set the binary
+                        //and a file is selected
                         if let Some(file) = dialog.path() {
-                            should_close = true;
-                            *binary = Some(file);
+                            //and we can get a path from it
+                            should_close = true; //say that we need to close
+                            *binary = Some(file); //set our binary
                             info!(binary=?binary.clone(), "Picked file");
                         }
                     }
                 }
                 if should_close {
-                    info!("Closing File Dialog");
-                    *binary_dialog = None;
+                    trace!("Closing File Dialog");
+                    *binary_dialog = None; //if we need to close, set our dialog to None
                 }
             }
             State::Running {
+                //if we are running runs
                 run_times,
                 stop,
                 run_recv,
@@ -268,48 +282,48 @@ impl App for BencherApp {
             } => {
                 for time in run_recv.try_iter() {
                     //for every message since we last checked, add it to the buffer
-                    trace!(?time, "Adding new time");
                     run_times.push(time);
                 }
 
                 if handle.as_ref().map_or(false, JoinHandle::is_finished) {
-                    //if we have a handle that has yet finished
+                    //if we have a handle, and it is finished
                     match std::mem::take(handle).unwrap().join() {
-                        //join the handle and report errors
+                        //join the handle and report errors - we can unwrap here as we only go above if we have a handle
                         Ok(Err(e)) => error!(%e, "Error from running handle"),
                         Err(_e) => error!("Error joining running handle"),
                         _ => {}
                     };
 
-                    let max = run_times.iter().max().copied().unwrap_or_default();
+                    let max = run_times.iter().max().copied().unwrap_or_default(); //get the max and min
                     let min = run_times.iter().min().copied().unwrap_or_default();
-                    let avg = if run_times.is_empty() {
-                        Duration::default()
-                    } else {
-                        run_times.iter().sum::<Duration>() / (run_times.len() as u32)
-                    }; //calc min/max/avg
+                    let (mean, standard_deviation) = calculate_mean_standard_deviation(
+                        &run_times.iter().map(Duration::as_micros).collect_vec(), //have to collect vec as we can't know the size of [u128] at compile-time
+                    ); //get the mean and standard deviation
 
                     let file_name = format!(
                         "{}_{}",
                         binary
                             .file_name()
-                            .and_then(OsStr::to_str)
-                            .unwrap_or("bench_results"),
+                            .and_then(OsStr::to_str) //TODO: make this into its own method for consistency
+                            .unwrap_or("bench_results"), //same as the runner cli default file name
                         run_times.len()
                     );
-                    change = Some(State::PostContents {
+                    change = Some(State::Finished {
+                        //make a new state
                         //new state
                         run_times: run_times.clone(),
                         min,
                         max,
-                        avg,
+                        mean,
+                        standard_deviation,
                         export_handle: None,
                         file_name_input: file_name.clone(),
-                        trace_name_input: file_name,
+                        trace_name_input: file_name, //same default trace name as file name
                         extra_trace_names_dialog: None,
-                        extra_traces: EguiList::default(), //TODO: cache this over time with the others
+                        extra_files: EguiList::default(),
                     });
                 } else {
+                    //if we don't have a finished handle
                     CentralPanel::default().show(ctx, |ui| {
                         let runs_so_far = run_times.len();
 
@@ -323,51 +337,51 @@ impl App for BencherApp {
                         ProgressBar::new((runs_so_far as f32) / (self.runs as f32)).ui(ui); //show all runs and add progress bar
 
                         if ui.button("Stop!").clicked() {
-                            info!("Sending stop signal"); //if we want to stop, then send message on channel
-                            stop.send(()).expect("Cannot send stop signal");
+                            info!("Sending stop signal");
+                            stop.send(()).expect("Cannot send stop signal"); //if we want to stop, then send stop message on channel
                         }
                     });
                 }
             }
-            State::PostContents {
+            State::Finished {
+                //if we've finished the runs
                 run_times,
                 min,
                 max,
-                avg,
+                mean,
+                standard_deviation,
                 export_handle,
                 file_name_input,
                 trace_name_input,
-                extra_traces,
+                extra_files,
                 extra_trace_names_dialog,
             } => {
                 CentralPanel::default().show(ctx, |ui| {
                     ui.label("All runs finished!");
+                    ui.label(format!(
+                        "{mean:?} ± {standard_deviation:?}, from {min:?} to {max:?}."
+                    ));
+
                     ui.separator();
                     run_times.display(ui, |dur, i| format!("Run {i} took {dur:?}"));
                     ui.separator();
 
-                    ui.label(format!("Max: {max:?}"));
-                    ui.label(format!("Min: {min:?}"));
-                    ui.label(format!("Mean: {avg:?}")); //display min/max/avg/runs
-
-                    ui.separator();
-
                     if ui.button("Go back to start").clicked() {
-                        info!("Going back to start");
-                        change = Some(Self::default_state_from_cc(frame.storage()));
-                        //option for going back to the start
+                        //if we need to go back to the start
+                        trace!("Going back to start");
+                        change = Some(frame.storage().into()); //restart using the storage
                     }
 
-                    //if we aren't currently exporting
                     if export_handle.is_none() {
+                        //if we aren't currently exporting
                         ui.horizontal(|ui| {
                             ui.label("File name (w/o extension): ");
-                            ui.text_edit_singleline(file_name_input);
+                            ui.text_edit_singleline(file_name_input); //textedit for file name
                         });
 
                         ui.horizontal(|ui| {
                             ui.label("Trace name: ");
-                            ui.text_edit_singleline(trace_name_input);
+                            ui.text_edit_singleline(trace_name_input); //textedit for trace name
                         });
 
                         ui.separator();
@@ -378,82 +392,85 @@ impl App for BencherApp {
                             *extra_trace_names_dialog = Some(dialog);
                         }
 
-                        extra_traces.display(ui, |file, _i| format!("{file:?}"));
+                        extra_files.display(ui, |file, _i| format!("{file:?}")); //display all of the extra trace file names
 
                         ui.vertical(|ui| {
                             if ui.button("Export to CSV").clicked() {
+                                //if we export to CSV
                                 info!("Exporting to CSV");
 
-                                let run_times = run_times.clone(); //thread-local clones
+                                let run_times = run_times.clone(); //thread-local clones to avoid move ownership faffery
                                 let file_name_input = file_name_input.clone();
                                 let trace_name_input = trace_name_input.clone();
-                                let extra_traces = extra_traces.backing_vec();
+                                let extra_traces = extra_files.backing_vec();
 
-                                *export_handle = Some(std::thread::spawn(move || {
-                                    export_csv(
-                                        //start a CSV export
-                                        Some((
-                                            trace_name_input,
-                                            run_times
-                                                .backing_vec()
-                                                .into_iter()
-                                                .map(|d| d.as_micros())
-                                                .collect(),
-                                        )),
-                                        file_name_input,
-                                        extra_traces,
-                                    )
-                                }));
+                                *export_handle = Some(
+                                    std::thread::Builder::new() //new thread for CSV export to avoid blocking on UI
+                                        .name("csv_exporter".into())
+                                        .spawn(move || {
+                                            export_csv(
+                                                //start a CSV export
+                                                Some((
+                                                    trace_name_input,
+                                                    run_times
+                                                        .backing_vec()
+                                                        .into_iter()
+                                                        .map(|d| d.as_micros())
+                                                        .collect(),
+                                                )),
+                                                file_name_input,
+                                                extra_traces,
+                                            )
+                                        })
+                                        .expect("error creating thread"),
+                                );
                             }
 
                             if ui.button("Export to HTML").clicked() {
+                                //if we export to HTML
                                 info!("Exporting to HTML");
 
-                                let run_times = run_times.clone(); //thread-local clones
+                                let run_times = run_times.clone(); //thread-local clones to avoid move ownership faffery
                                 let file_name_input = file_name_input.clone();
                                 let trace_name_input = trace_name_input.clone();
-                                let extra_traces = extra_traces.backing_vec();
+                                let extra_traces = extra_files.backing_vec();
 
-                                *export_handle = Some(std::thread::spawn(move || {
-                                    export_html(
-                                        //start an HTML export
-                                        Some((
-                                            trace_name_input,
-                                            run_times
-                                                .backing_vec()
-                                                .into_iter()
-                                                .map(|d| d.as_micros())
-                                                .collect(),
-                                        )),
-                                        file_name_input,
-                                        extra_traces,
-                                    )
-                                }));
+                                *export_handle = Some(
+                                    std::thread::Builder::new() //new thread for HTML export to avoid blocking on UI
+                                        .name("html_exporter".into())
+                                        .spawn(move || {
+                                            export_html(
+                                                //start an HTML export
+                                                Some((
+                                                    trace_name_input,
+                                                    run_times
+                                                        .backing_vec()
+                                                        .into_iter()
+                                                        .map(|d| d.as_micros())
+                                                        .collect(),
+                                                )),
+                                                file_name_input,
+                                                extra_traces,
+                                            )
+                                        })
+                                        .expect("error creating thread"),
+                                );
                             }
                         });
-                    } else if export_handle
-                        .as_ref()
-                        .map_or(false, JoinHandle::is_finished)
-                    //if the handle has finished
-                    {
-                        match std::mem::take(export_handle).unwrap().join() {
-                            //report errors
-                            Ok(Err(e)) => error!(%e, "Error exporting"),
-                            Ok(Ok(n)) => info!(%n, "Finished exporting"),
-                            Err(_e) => error!("Error joining handle for exporting"),
-                        }
                     } else {
                         ui.label("Exporting..."); //if we haven't finished, but have a handle then say we're exporting
                     }
                 });
 
-                let mut should_close = false;
+                let mut should_close = false; //temp variable for if we need to close stuff to avoid ownership faffery
                 if let Some(dialog) = extra_trace_names_dialog {
+                    //if we have a dialog open
                     if dialog.show(ctx).selected() {
-                        //if we select a file, and it is a file then we need to close the thing (after we can get ownership of it, later), and set the binary
+                        //and a file is selected
                         if let Some(file) = dialog.path() {
-                            should_close = true;
-                            extra_traces.push(file.clone());
+                            //and we can get a path
+                            should_close = true; //we need to close
+                            extra_files.push(file.clone()); //add the path to the extra files list
                             info!(trace=?file, "Picked file for extra traces");
                         }
                     }
@@ -461,7 +478,7 @@ impl App for BencherApp {
                 if should_close {
                     info!("Closing File Dialog for traces");
                     *extra_trace_names_dialog = None;
-                } //TODO: make own class/method for these dialogs
+                }
             }
         }
 
@@ -476,8 +493,9 @@ impl App for BencherApp {
         }
     }
 
+    #[instrument(skip(self, storage))]
     fn save(&mut self, storage: &mut dyn Storage) {
-        if let State::PreContents {
+        if let State::Setup {
             //we only need to save Pre stuff, so check if we've got that
             binary,
             cli_args,

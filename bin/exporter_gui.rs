@@ -1,5 +1,6 @@
 //! Export runs in a GUI
 
+//imports
 use benchmarker::{
     egui_utils::{ChangeType, EguiList},
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
@@ -10,11 +11,9 @@ use egui::{CentralPanel, Context};
 use egui_file::FileDialog;
 use itertools::Itertools;
 use std::{
-    collections::HashSet,
     ffi::OsStr,
     path::{Path, PathBuf},
     sync::mpsc::{channel, Receiver, Sender},
-    thread::JoinHandle,
 };
 
 ///Struct for an [`eframe::App`] for exports.
@@ -37,29 +36,33 @@ pub struct ExporterApp {
 
 impl ExporterApp {
     ///Constructor - uses the `storage` to get the files
+    #[instrument(skip(storage))]
     pub fn new(storage: Option<&dyn Storage>) -> Self {
-        info!("Starting new EA");
+        trace!(has_storage=?storage.is_some(), "Starting new Exporter App");
         let files: Vec<PathBuf> = storage
-            .and_then(|s| s.get_string("files"))
+            .and_then(|s| s.get_string("files")) //if we have storage, then get out the content from the key "files"
             .map(|s| {
-                info!(?s, "Got files");
+                //if we got the content, then map it to the contents because it is a list
+                trace!(?s, "Got files");
                 if s.is_empty() {
+                    //"".split(/* anything */) returns vec![""], which we don't want, so we check if the string is empty first, before splitting it
                     vec![]
                 } else {
                     s.split(EGUI_STORAGE_SEPARATOR)
-                        .map(ToString::to_string)
-                        .collect() //"".split(/* anything */) returns vec![""], which we don't want, so we clear the vec if we see this
+                        .map(ToString::to_string) //since we get borrowed strings, and its easier to deal with owned strings (as we can't return a borrow of something from inside the function), we make them all into owned strings
+                        .collect() //and we make it into
                 }
             })
-            .unwrap_or_default()
-            .into_iter()
-            .unique()
+            .unwrap_or_default() //if we didn't get the content, we just make an empty vector
+            .into_iter() //which we turn into an iterator
+            .unique() //and only get the unique items to avoid duplicates
             .filter_map(|s| {
-                let path = Path::new(&s);
+                //then, we filter through them and map items
+                let path = Path::new(&s); //we make a path from the strinh
                 if path.exists() {
                     let pb = path.to_path_buf();
-                    info!(?pb, "Found path");
-                    Some(pb)
+                    trace!(?pb, "Found path");
+                    Some(pb) //if it exists, we return it, and if not we don't
                 } else {
                     warn!(?s, ?path, "File not found");
                     None
@@ -68,8 +71,7 @@ impl ExporterApp {
             .collect();
 
         let (file_tx, file_rx) = channel();
-        let (stop_tx, stop_rx) = channel();
-        let (trace_tx, trace_rx) = channel();
+        let (trace_tx, trace_rx) = channel(); //here we make 2 channels for where we can send files to the thread and receive traces from the thread
 
         std::thread::Builder::new() //make a new thread for handling the loading of new files
             .name("exporter_file_loader".into()) //we send files to the thread
@@ -80,7 +82,8 @@ impl ExporterApp {
             .expect("error creating thread");
 
         for file in &files {
-            file_tx
+            //for each file we got from the storage, we try and get it from the thread
+            file_tx //we don't need to worry about them being invalid, as they get checked above
                 .send(file.clone())
                 .expect("unable to send files from init load");
         }
@@ -99,6 +102,7 @@ impl ExporterApp {
 
 ///This is the meat and potatoes of the loader thread - it basically just waits for files to arrive and parses all of them, and then repeats. If it sees the `stop_rx` complaining, then it stops.
 #[allow(clippy::needless_pass_by_value)]
+#[instrument]
 fn handle_loading(file_rx: Receiver<PathBuf>, trace_tx: Sender<(PathBuf, String, Vec<u128>)>) {
     while let Ok(file) = file_rx.try_recv() {
         match import_csv(file.clone()) {
@@ -118,28 +122,36 @@ fn handle_loading(file_rx: Receiver<PathBuf>, trace_tx: Sender<(PathBuf, String,
 impl App for ExporterApp {
     fn update(&mut self, ctx: &Context, _frame: &mut Frame) {
         CentralPanel::default().show(ctx, |ui| {
-            ui.label("Benchmarker Imports/Exports");
+            ui.label("Benchmarker Imports/Exports"); //add a title
             ui.separator();
 
             ui.checkbox(
+                //make a checkbox
                 &mut self.remove_existing_files_on_add_existing_file,
                 "Remove old traces when re-adding files?",
             );
             if self.add_file_dialog.is_none() && ui.button("Add new file").clicked() {
-                let mut dialog = FileDialog::open_file(self.files.get(0).cloned());
-                dialog.open();
+                //if we don't have a dialog currently open AND we click the new file button
+                let mut dialog = FileDialog::open_file(self.files.last().cloned()); //make a new file dialog with the last file currently open to save the person reopening the directories. since the constructor takes an option, if we don't have any files, it just is None and we don't have to worry about it
+                dialog.open(); //open the dialog
 
-                self.add_file_dialog = Some(dialog);
+                self.add_file_dialog = Some(dialog); //and add it to the member variable
             }
-            let mut needs_to_close = false;
+            let mut needs_to_close = false; //variable for if we need to close it to avoid ownership faffery
             if let Some(dialog) = &mut self.add_file_dialog {
+                //if we have a dialog, take a mutable reference
                 if dialog.show(ctx).selected() {
+                    //show it, and if it is selected
                     if let Some(file) = dialog.path() {
-                        needs_to_close = true;
+                        //and there is a path
+                        needs_to_close = true; //we need to now close the dialog
 
                         if file.extension() == Some(OsStr::new("csv")) {
+                            //if it is a CSV file
                             if self.files.contains(&file) {
+                                //and we already have it
                                 if self.remove_existing_files_on_add_existing_file {
+                                    //if we need to remove the old traces from that file
                                     #[allow(clippy::needless_collect)]
                                     let inidicies: Vec<usize> = self
                                         .traces
@@ -150,45 +162,48 @@ impl App for ExporterApp {
                                                 Some(i)
                                             } else {
                                                 None
-                                            }
+                                            } //get all the indicies of traces associated with that file
                                         })
                                         .collect(); //ignore clippy error - we need this to avoid borrow checker stuff. afaik its cheaper to collect and into_iter here, than it is to clone all the traces
                                     for (offset, i) in inidicies.into_iter().enumerate() {
-                                        self.traces.remove(i - offset);
+                                        self.traces.remove(i - offset); //and remove them
                                     }
                                 }
                             } else {
-                                self.files.push(file.clone());
+                                self.files.push(file.clone()); //if we don't already have it, we add it
                             }
 
                             self.file_tx
-                                .send(file)
+                                .send(file) //send it to the loader thread
                                 .expect("unable to send pathbuf to file tx");
                         } else {
-                            error!(?file, "File doesn't end in CSV");
+                            error!(?file, "File doesn't end in CSV"); //if we don't get a CSV file, error out
                         }
                     }
                 }
             }
             if needs_to_close {
+                //if we need to close it, just forget it
                 self.add_file_dialog = None;
             }
             ui.separator();
 
             if !self.traces.is_empty() {
+                //if we have any traces
                 ui.label("Traces to use:");
                 self.traces.display(ui, |(file, name, list), _i| {
                     format!("File: {file:?}, {name} with {} elements.", list.len())
-                });
+                }); //display each trace with their file names, trace names and number of elements
                 ui.separator();
             }
 
             ui.horizontal(|ui| {
-                ui.label("File Name");
+                ui.label("Export File Name"); //text box and label for file name
                 ui.text_edit_singleline(&mut self.export_name);
 
                 ui.vertical(|ui| {
                     if ui.button("Export to CSV").clicked() {
+                        //export to CSV button with all our traces
                         export_csv_no_file_input(
                             &self.export_name,
                             self.traces
@@ -200,6 +215,7 @@ impl App for ExporterApp {
                         .expect("unable to export files to csv");
                     }
                     if ui.button("Export to HTML").clicked() {
+                        //export to HTML button with all our traces
                         export_html_no_file_input(
                             &self.export_name,
                             self.traces
@@ -215,38 +231,45 @@ impl App for ExporterApp {
         });
 
         while let Ok(new_trace) = self.trace_rx.try_recv() {
-            self.traces.push(new_trace);
+            //poll our trace receiver for new traces. use try_recv to avoid blocking on a UI thread
+            self.traces.push(new_trace); //and add all of them
         }
 
-        #[allow(clippy::single_match)]
-        match self.traces.had_update() {
-            //ignore clippy - might be new things in future
-            Some(ChangeType::Removed) => {
-                let mut worked = HashSet::with_capacity(self.files.len());
-                for (file, _, _) in self.traces.iter() {
-                    if !worked.contains(file) {
-                        worked.insert(file.clone());
-                    }
+        if let Some(change) = self.traces.had_update() {
+            match change {
+                //if our traces EguiList had an update, match on it
+                ChangeType::Removed => {
+                    //here, we go through every trace in our traces EguiList, keep the unique ones, and then get owned versions of the remaining ones
+                    self.files = self
+                        .traces
+                        .iter()
+                        .map(|(file, _, _)| file)
+                        .unique()
+                        .cloned()
+                        .collect();
                 }
-                self.files = worked.into_iter().collect();
+                _ => {
+                    trace!(?change, "list change in exporter traces list");
+                }
             }
-            _ => {}
         }
     }
 
+    #[instrument(skip(self, storage))]
     fn save(&mut self, storage: &mut dyn Storage) {
         let files_to_save = self
             .files
             .clone()
-            .into_iter()
+            .into_iter() //for each file
             .filter_map(|pb| match pb.into_os_string().into_string() {
-                Ok(p) => Some(p),
+                Ok(p) => Some(p), //if we can turn it into a string, do it
                 Err(e) => {
                     error!(?e, "Error getting String of PathBuf for saving.");
-                    None
+                    None //if not, we just don't save it
                 }
             })
-            .join(EGUI_STORAGE_SEPARATOR);
-        storage.set_string("files", files_to_save);
+            .join(EGUI_STORAGE_SEPARATOR); //join with the separator into a String
+        trace!("Saving current files");
+        storage.set_string("files", files_to_save); //and save them
     }
 }

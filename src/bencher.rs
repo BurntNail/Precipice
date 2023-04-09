@@ -6,9 +6,9 @@
 //! ```rust
 //! use std::path::PathBuf;
 //! use std::sync::mpsc::{channel, Receiver, Sender};
-//! use benchmarker::bencher::Runner;
+//! use benchmarker::bencher::{DEFAULT_RUNS, Runner};
 //!
-//! let (handle, rx) = Runner::new(PathBuf::from("/bin/echo"), vec!["Hello".into()], 1_000, None, true);
+//! let (handle, rx) = Runner::new(PathBuf::from("/bin/echo"), vec!["Hello".into()], DEFAULT_RUNS, None, true);
 //!
 //! while !handle.is_finished() {
 //!     //add stuff from rx
@@ -45,7 +45,10 @@ pub struct Runner {
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
-const CHUNK_SIZE: usize = 25;
+const CHUNK_SIZE: usize = 5;
+
+///Useful constant for default runs
+pub const DEFAULT_RUNS: usize = 1_000;
 
 impl Runner {
     ///Constructor
@@ -68,90 +71,123 @@ impl Runner {
 
     ///Starts the runner in a new thread
     #[must_use]
-    pub fn start(self) -> Option<(JoinHandle<io::Result<()>>, Receiver<Duration>)> {
+    #[instrument(skip(self))]
+    pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
         let Self {
             runs,
             binary,
             cli_args,
-            stop_rx: stop_recv,
+            stop_rx,
             warmup,
-        } = self;
+        } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
 
         let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
-        let handle = std::thread::spawn(move || {
-            info!(%runs, ?binary, ?cli_args, ?warmup, "Starting benching.");
 
-            let mut command = Command::new(binary);
-            command.args(cli_args); //Create a new Command and add our arguments
+        let handle = std::thread::Builder::new()
+            .name("benchmark_runner".into()) //new thread to run the benchmarks on
+            .spawn(move || {
+                info!(%runs, ?binary, ?cli_args, ?warmup, "Starting benching.");
 
-            if let Ok(cd) = current_dir() {
-                command.current_dir(cd); //If we have a current directory, add that to the Command
-            }
+                let mut command = Command::new(binary);
+                command.args(cli_args); //Create a new Command and add our arguments
 
-            let mut start = Instant::now();
-
-            {
-                //either the first run, or the warmup run. we always send output from this one.
-                let Output {
-                    status,
-                    stdout,
-                    stderr,
-                } = command.output()?;
-
-                if !warmup {
-                    duration_sender
-                        .send(start.elapsed())
-                        .expect("error sending time");
-                }
-                if !status.success() {
-                    error!(?status, "Initial Command failed");
+                if let Ok(cd) = current_dir() {
+                    command.current_dir(cd); //If we have a current directory, add that to the Command
                 }
 
-                if !stdout.is_empty() {
-                    io::stdout().lock().write_all(&stdout)?;
-                }
-                if !stderr.is_empty() {
-                    io::stderr().lock().write_all(&stderr)?;
-                }
-            }
+                let mut start = Instant::now();
 
-            command.stdout(Stdio::null()).stderr(Stdio::null());
-
-            for chunk_size in (0..runs)
-                .chunks(CHUNK_SIZE)
-                .into_iter()
-                .map(Iterator::count)
-            {
-                if stop_recv
-                    .as_ref()
-                    .map_or(true, |stop_recv| stop_recv.try_recv().is_err())
-                //If we don't receive anything on the stop channel, or we don't have a stop channel
                 {
-                    trace!(%chunk_size, "Starting batch.");
+                    //either the first run, or the warmup run. we always send output to the CLI from this one.
+                    let Output {
+                        status,
+                        stdout,
+                        stderr,
+                    } = command.output()?;
 
-                    for _ in 0..chunk_size {
-                        start = Instant::now(); //send the elapsed duration and reset it
-
-                        let status = command.status()?;
-
+                    if !warmup { //but we only send the time if this isn't a warmup
+                        let elapsed = start.elapsed();
                         duration_sender
-                            .send(start.elapsed())
-                            .expect("Error sending result");
-
-                        if status.success() {
-                            trace!(?status, "Finished command");
-                        } else {
-                            warn!(?status, "Command failed");
-                        }
+                            .send(elapsed)
+                            .expect("error sending time");
                     }
-                } else {
-                    break; //if we do need to stop, break the loop
-                }
-            }
+                    if !status.success() { //if we don't have an initial success, stop!
+                        error!(?status, "Initial Command failed");
+                        return Ok(());
+                    }
 
-            Ok(())
-        });
-        Some((handle, duration_receiver))
+                    if !stdout.is_empty() { //if we have a stdout, print it
+                        io::stdout().lock().write_all(&stdout)?;
+                    }
+                    if !stderr.is_empty() { //if we have a stderr, print it
+                        io::stderr().lock().write_all(&stderr)?;
+                    }
+                }
+
+                command.stdout(Stdio::null()).stderr(Stdio::null()); //now set the command to not have a stdout or stderr
+
+                for chunk_size in (0..runs)
+                    .chunks(CHUNK_SIZE)
+                    .into_iter()
+                    .map(Iterator::count) //run in chunks to avoid constantly polling the stop_rx
+                {
+                    if stop_rx
+                        .as_ref()
+                        .map_or(true, |stop_recv| stop_recv.try_recv().is_err())
+                    //If we don't receive anything on the stop channel, or we don't have a stop channel
+                    {
+                        trace!(%chunk_size, "Starting batch.");
+
+                        for _ in 0..chunk_size {
+                            start = Instant::now(); //send the elapsed duration and reset it
+
+                            let status = command.status()?; //run the command
+
+                            duration_sender
+                                .send(start.elapsed())
+                                .expect("Error sending result");
+
+                            if status.success() { //log the status
+                                trace!(?status, "Finished command");
+                            } else {
+                                warn!(?status, "Command failed");
+                            }
+                        }
+                    } else {
+                        break; //if we did receive something on the stop channel, break the loop
+                    }
+                }
+
+                Ok(())
+            })
+            .expect("error creating thread");
+        (handle, duration_receiver)
     }
+}
+
+///Calculate the mean and standard deviation from a list of microsecond run values
+#[allow(clippy::cast_precision_loss)]
+#[must_use]
+pub fn calculate_mean_standard_deviation(runs: &[u128]) -> (Duration, Duration) {
+    if runs.is_empty() {
+        return (Duration::default(), Duration::default());
+    }
+
+    let len = runs.len() as f64;
+    let mut sum = 0;
+    let mut sum_of_squares = 0;
+
+    for item in runs {
+        sum += item;
+        sum_of_squares += item.pow(2);
+    }
+
+    let mean = (sum as f64) / len;
+    let variance = mean.mul_add(-mean, (sum_of_squares as f64) / len); //(sum_of_squares as f64) / len - mean.powi(2); mean of squares - square of mean
+
+    (
+        Duration::from_secs_f64(mean / 1_000_000.0),
+        Duration::from_secs_f64(variance.sqrt() / 1_000_000.0),
+    ) //divide by 1_000_000 to account for micros being stored
 }

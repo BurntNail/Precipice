@@ -7,6 +7,7 @@ use std::{
     path::Path,
 };
 
+use crate::bencher::DEFAULT_RUNS;
 use plotly::{Histogram, Plot};
 
 ///Imports a set of traces from a CSV file
@@ -15,24 +16,30 @@ use plotly::{Histogram, Plot};
 ///
 /// Can fail if we fail to read the file using [`read_to_string`]
 pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>> {
-    let lines = read_to_string(file)?;
+    let lines = read_to_string(file)?; //read in the csv file
     if lines.trim().is_empty() {
+        //if it is empty (need to trim in case of extra newlines etc), just return an empty list
         return Ok(vec![]);
     }
-    let no_lines = lines.lines().count();
+    let no_lines = lines.lines().count(); //have to get lines twice, as count consumes
     let lines = lines.lines();
 
-    let mut trace_contents = vec![(String::new(), vec![]); no_lines];
-    for (i, line) in lines.enumerate() {
+    let mut trace_contents: Vec<(String, Vec<u128>)> = Vec::with_capacity(no_lines);
+    for line in lines {
+        let mut title = String::new();
+        let mut contents = Vec::with_capacity(
+            trace_contents
+                .first()
+                .map_or(DEFAULT_RUNS, |(_, v)| v.len()),
+        ); //make a new vec with the capacity of the first one, or if we don't have one yet, use DEFAULT_RUNS
         for (j, time) in line.split(',').enumerate() {
             if j == 0 {
-                trace_contents[i].0 = time.to_string();
+                title = time.to_string(); //here, it isn't a time, its a title - the first item is the title
             } else {
-                trace_contents[i]
-                    .1
-                    .push(time.parse().expect("unable to parse time"));
+                contents.push(time.parse().expect("unable to parse time")); //here, it is a time, so we need to parse it.
             }
         }
+        trace_contents.push((title, contents));
     }
 
     Ok(trace_contents)
@@ -47,14 +54,15 @@ pub fn get_traces(
     trace: Option<(String, Vec<u128>)>,
 ) -> io::Result<Vec<(String, Vec<u128>)>> {
     let mut traces: Vec<(String, Vec<u128>)> = trace_file_names
-        .into_iter()
-        .map(import_csv)
-        .collect::<io::Result<Vec<Vec<(String, Vec<u128>)>>>>()?
-        .into_iter()
-        .flatten()
-        .collect();
+        .into_iter() //for each trace
+        .map(import_csv) //import it
+        .collect::<io::Result<Vec<Vec<(String, Vec<u128>)>>>>()? //collect any results and bubble
+        .into_iter() //make that back into an iterator
+        .flatten() //flatten it - Vec<Vec<T>> to a flat Vec<T>
+        .collect(); //then get that into a Vec<T>
     if let Some((name, times)) = trace {
-        traces.push((name, times));
+        //if we got a trace to start with
+        traces.push((name, times)); //add it
     }
     Ok(traces)
 }
@@ -69,8 +77,8 @@ pub fn export_csv(
     file_name_input: impl AsRef<Path> + Display,
     extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> io::Result<usize> {
-    let traces = get_traces(extra_trace_file_names, trace)?;
-    export_csv_no_file_input(file_name_input, traces)
+    let traces = get_traces(extra_trace_file_names, trace)?; //get the traces from the file and provided
+    export_csv_no_file_input(file_name_input, traces) //export
 }
 
 ///Exports a set of traces to a CSV file
@@ -82,7 +90,7 @@ pub fn export_csv_no_file_input(
     file_name_input: impl AsRef<Path> + Display,
     traces: Vec<(String, Vec<u128>)>,
 ) -> io::Result<usize> {
-    let mut to_be_written = String::new();
+    let mut to_be_written = String::new(); //string with space to be written to
 
     for (name, times) in traces {
         to_be_written += &name;
@@ -90,13 +98,12 @@ pub fn export_csv_no_file_input(
             to_be_written += ",";
             to_be_written += &time.to_string();
         }
-
         to_be_written += "\n";
-    }
+    } //manually write a csv - title,time1,time2,time3 etc
 
-    let mut file = File::create(format!("{file_name_input}.csv"))?;
-    let to_be_written = to_be_written.as_bytes();
-    file.write_all(to_be_written)?;
+    let mut file = File::create(format!("{file_name_input}.csv"))?; //make a file
+    let to_be_written = to_be_written.as_bytes(); //get the bytes to be written
+    file.write_all(to_be_written)?; //write them all
 
     Ok(to_be_written.len())
 }
@@ -111,11 +118,11 @@ pub fn export_html(
     file_name_input: impl AsRef<Path> + Display,
     extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
 ) -> io::Result<usize> {
-    let traces = get_traces(extra_trace_file_names, trace)?;
-    export_html_no_file_input(file_name_input, traces)
+    let traces = get_traces(extra_trace_file_names, trace)?; //get the traces from the file and provided
+    export_html_no_file_input(file_name_input, traces) //and export them
 }
 
-///Exports a set of traces to a CSV file
+///Exports a set of traces to a HTML file
 ///
 /// # Errors
 ///
@@ -124,15 +131,15 @@ pub fn export_html_no_file_input(
     file_name_input: impl AsRef<Path> + Display,
     traces: Vec<(String, Vec<u128>)>,
 ) -> io::Result<usize> {
-    let mut plot = Plot::new();
+    let mut plot = Plot::new(); //make a new plotly plot
     for (name, trace) in traces {
-        plot.add_trace(Histogram::new(trace).name(name));
+        plot.add_trace(Histogram::new(trace).name(name)); //for each trace, add it to a plotly plot
     }
 
-    let mut file = File::create(format!("{file_name_input}.html"))?;
-    let html = plot.to_html();
-    let html = html.as_bytes();
-    file.write_all(html)?;
+    let mut file = File::create(format!("{file_name_input}.html"))?; //make a file
+    let html = plot.to_html(); //make the html
+    let html = html.as_bytes(); //get the bytes - 2 steps to avoid dropping temporary value
+    file.write_all(html)?; //write all of the bytes
 
     Ok(html.len())
 }
