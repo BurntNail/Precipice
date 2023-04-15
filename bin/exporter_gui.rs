@@ -238,7 +238,7 @@ impl App for ExporterApp {
         if let Some(change) = self.traces.had_update() {
             match change {
                 //if our traces EguiList had an update, match on it
-                ChangeType::Removed => {
+                ChangeType::Removed(_) => {
                     //here, we go through every trace in our traces EguiList, keep the unique ones, and then get owned versions of the remaining ones
                     self.files = self
                         .traces
@@ -246,7 +246,7 @@ impl App for ExporterApp {
                         .map(|(file, _, _)| file)
                         .unique()
                         .cloned()
-                        .collect();
+                        .collect(); //we can't just remove the item, as we might still have other traces from that file
                 }
                 _ => {
                     trace!(?change, "list change in exporter traces list");

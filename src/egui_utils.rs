@@ -10,9 +10,9 @@ use std::{
 ///An enum to represent a change in a list item
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum ChangeType {
+pub enum ChangeType<T> {
     ///An item was removed
-    Removed, //TODO: also return index with change
+    Removed(T),
     ///An item was reordered
     Reordered,
 }
@@ -27,7 +27,7 @@ pub struct EguiList<T> {
     ///Whether or not you can reorder items in the list. Defaults to `false`
     is_reorderable: bool,
     ///A temporary variable for if we had an update
-    had_list_update: Option<ChangeType>,
+    had_list_update: Option<ChangeType<T>>,
     ///The backing list that gets displayed.
     backing: Vec<T>,
 }
@@ -47,7 +47,7 @@ impl<T> Default for EguiList<T> {
 impl<T> EguiList<T> {
     ///This uses [`std::mem::take`] on the temporary list update variable - it gets it, and if you poll after it will be [`None`] unless something changes
     #[must_use]
-    pub fn had_update(&mut self) -> Option<ChangeType> {
+    pub fn had_update(&mut self) -> Option<ChangeType<T>> {
         std::mem::take(&mut self.had_list_update)
     }
 
@@ -93,18 +93,15 @@ impl<T> EguiList<T> {
                     if self.is_editable && ui.button("Remove?").clicked() {
                         //if we need to remove, then set the index
                         need_to_remove = Some(i);
-                        self.had_list_update = Some(ChangeType::Removed);
                     }
                     if self.is_reorderable {
                         //if we can redorder
                         if ui.button("Up?").clicked() {
                             //then set variables if we get clicks
                             up = Some(i);
-                            self.had_list_update = Some(ChangeType::Reordered);
                         }
                         if ui.button("Down?").clicked() {
                             down = Some(i);
-                            self.had_list_update = Some(ChangeType::Reordered);
                         }
                     }
                 }
@@ -113,8 +110,9 @@ impl<T> EguiList<T> {
 
         let len_minus_one = self.backing.len() - 1;
         if let Some(need_to_remove) = need_to_remove {
-            self.backing.remove(need_to_remove);
+            self.had_list_update = Some(ChangeType::Removed(self.backing.remove(need_to_remove)));
         } else if let Some(up) = up {
+            self.had_list_update = Some(ChangeType::Reordered);
             //extra code with checking <> 0 for wrapping around rather than just normal swapping
             if up > 0 {
                 self.backing.swap(up, up - 1);
@@ -122,6 +120,7 @@ impl<T> EguiList<T> {
                 self.backing.swap(0, len_minus_one);
             }
         } else if let Some(down) = down {
+            self.had_list_update = Some(ChangeType::Reordered);
             if down < len_minus_one {
                 self.backing.swap(down, down + 1);
             } else {
