@@ -3,14 +3,9 @@
 use crate::ExportType;
 use benchmarker::bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS};
 use clap::Parser;
-use indicatif::ProgressBar;
-use std::{
-    ffi::OsStr,
-    io::stdin,
-    path::PathBuf,
-    sync::mpsc::{channel, Receiver},
-    time::Duration,
-};
+use indicatif::{ProgressBar, ProgressStyle};
+use owo_colors::OwoColorize;
+use std::{ffi::OsStr, path::PathBuf, sync::mpsc::channel, time::Duration};
 
 /// The CLI args for running stuff
 #[derive(Clone, Debug, Parser)] //struct for CLI args which can be parsed/cloned/printed
@@ -36,6 +31,9 @@ pub struct FullCLIArgs {
     ///The trace name to export as. This is the name of the line in the HTML graph and defaults to the binary's name
     #[arg(short = 'n', long)]
     export_trace_name: Option<String>,
+    ///Whether or not we should print the inital run.
+    #[arg(short, long, default_value_t = false)]
+    print_initial: bool,
 }
 
 ///Run the runner CLI
@@ -50,6 +48,7 @@ pub fn run(
         export_ty,
         export_out_file,
         export_trace_name,
+        print_initial,
     }: FullCLIArgs,
 ) {
     let export_out_file = export_out_file.unwrap_or_else(|| {
@@ -74,17 +73,57 @@ pub fn run(
         _ => vec![], //if it is empty or we didn't get anything, then return an empty vec. this way we avoid a vec![""]
     };
 
-    println!("Benching {binary:?} with {cli_args:?}, for {runs} to {export_ty}."); //print a message to the user to confirm what they're doing.
-    println!("To cancel at any point, press any key."); //notify the user about cancelling by input
+    let Some(file_name) = binary.file_name().map(OsStr::to_os_string) else {
+        panic!("need a binary to bench, not a folder");
+    };
+
+    {
+        //scoped variables to print a message to the user to let them know what they are doing.
+        let binary = match file_name.into_string() {
+            Ok(s) => s,
+            Err(s) => format!("{s:?}"),
+        };
+        let binary_and_args = if cli_args.is_empty() {
+            binary
+        } else {
+            binary + &cli_args.join(" ")
+        };
+
+        println!("{} {}", "Benchmark:".bold(), binary_and_args.italic());
+    }
 
     let (stop_tx, stop_rx) = channel(); //make a channel for stopping
+
     let mut found_runs = vec![]; //make a vec for runs we've received
-    let (handle, rx) = Runner::new(binary, cli_args, runs, Some(stop_rx), !no_warmup).start(); //get a handle from a new runner, with the binary etc
+    let (handle, rx) = Runner::new(
+        binary,
+        cli_args,
+        runs,
+        Some(stop_rx),
+        !no_warmup,
+        print_initial,
+    )
+    .start(); //get a handle from a new runner, with the binary etc
 
     std::thread::sleep(Duration::from_millis(50)); //wait to make sure that we show the progress bar underneath the initial run
 
     let progress_bar = ProgressBar::new(runs as u64); //make a new progress bar with the number of runs we expect to do
-    let stdin_nb = spawn_stdin_channel(); //make a new channel polling stdin for input
+    {
+        let progress_bar = progress_bar.clone();
+        ctrlc::set_handler(move || {
+            stop_tx.send(()).expect("Could not send signal on channel.");
+            progress_bar.abandon_with_message("Stopped by User");
+        })
+        .expect("Error setting Ctrl-C handler"); //if we receive a stop signal, stop the benching
+    }
+
+    progress_bar.set_style(
+        ProgressStyle::with_template(
+            "{spinner} Elapsed: [{elapsed_precise}], ETA: [{eta_precise}] {bar:40.cyan/blue} {pos:>7}/{len:7}",
+        )
+        .unwrap()
+        .progress_chars("##-"),
+    );
 
     while !handle.is_finished() {
         //while the handle isn't finished, that is whilst we've still got runs
@@ -94,13 +133,9 @@ pub fn run(
             found_runs.push(time.as_micros()); //for every run we've got since the last poll, add it to our list
             delta += 1; //and increment our delta
         }
-        progress_bar.inc(delta); //update our progress bar with the delta
 
-        if stdin_nb.try_iter().next().is_some() {
-            //if we've received something from stdin
-            eprintln!("Stopping early");
-            stop_tx.send(()).expect("error sending stop message"); //send a stop message
-                                                                   // we don't stop the loop to ensure that all the runs get received and it stops
+        if delta > 0 {
+            progress_bar.inc(delta); //update our progress bar with the delta
         }
     }
     handle
@@ -108,27 +143,35 @@ pub fn run(
         .expect("unable to join handle")
         .expect("error from inside handle");
 
-    let (mean, standard_deviation) = calculate_mean_standard_deviation(&found_runs);
+    progress_bar.finish_and_clear();
+
+    let min_max_median: Option<(u128, u128, u128)> = found_runs
+        .iter()
+        .min()
+        .copied()
+        .zip(found_runs.iter().max().copied())
+        .zip(found_runs.get(found_runs.len() / 2).copied())
+        .map(|((a, b), c)| (a, b, c));
+    let mean_standard_deviation = calculate_mean_standard_deviation(&found_runs);
 
     let n = export_ty.export(export_trace_name, found_runs, export_out_file); //export
 
     trace!(?n, "Finished exporting");
-    println!("End Result: {mean:.3?} ± {standard_deviation:.3?}");
-}
-
-///Spawns a channel to read from stdin without blocking the main thread
-///
-///From: <https://stackoverflow.com/questions/30012995/how-can-i-read-non-blocking-from-stdin>
-fn spawn_stdin_channel() -> Receiver<String> {
-    let (tx, rx) = channel::<String>();
-    std::thread::Builder::new()
-        .name("stdin_reader".into())
-        .spawn(move || loop {
-            let mut buffer = String::new();
-            stdin().read_line(&mut buffer).unwrap();
-            trace!(?buffer, "Read input from stdin");
-            tx.send(buffer).unwrap();
-        })
-        .expect("error creating thread");
-    rx
+    if let Some((mean, standard_deviation)) = mean_standard_deviation {
+        println!(
+            "{}: {} ± {}",
+            "Mean ± Standard Deviation".bold(),
+            format!("{mean:.3?}").bright_green(),
+            format!("{standard_deviation:.3?}").bright_green()
+        );
+    }
+    if let Some((min, max, median)) = min_max_median {
+        println!(
+            "{}: {} … {} … {}",
+            "Min … Median … Max       ".bold(),
+            format!("{:.3?}", Duration::from_micros(min as u64)).bright_blue(),
+            format!("{:.3?}", Duration::from_micros(median as u64)).bright_green(),
+            format!("{:.3?}", Duration::from_micros(max as u64)).bright_red()
+        );
+    }
 }

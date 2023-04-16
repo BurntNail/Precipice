@@ -42,6 +42,8 @@ pub struct Runner {
     pub stop_rx: Option<Receiver<()>>,
     ///Whether to run any warmup runs to cache the program
     pub warmup: bool,
+    ///Whether or not to print the initial run
+    pub print_initial: bool,
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
@@ -59,6 +61,7 @@ impl Runner {
         runs: usize,
         stop_rx: Option<Receiver<()>>,
         warmup: bool,
+        print_initial: bool,
     ) -> Self {
         Self {
             binary,
@@ -66,6 +69,7 @@ impl Runner {
             runs,
             stop_rx,
             warmup,
+            print_initial,
         }
     }
 
@@ -79,6 +83,7 @@ impl Runner {
             cli_args,
             stop_rx,
             warmup,
+            print_initial,
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
 
@@ -99,28 +104,30 @@ impl Runner {
                 let mut start = Instant::now();
 
                 {
-                    //either the first run, or the warmup run. we always send output to the CLI from this one.
+                    //either the first run, or the warmup run. if we print initial, we send the stdout, and we always send the stderr
                     let Output {
                         status,
                         stdout,
                         stderr,
                     } = command.output()?;
 
-                    if !warmup { //but we only send the time if this isn't a warmup
+                    if !warmup {
+                        //but we only send the time if this isn't a warmup
                         let elapsed = start.elapsed();
-                        duration_sender
-                            .send(elapsed)
-                            .expect("error sending time");
+                        duration_sender.send(elapsed).expect("error sending time");
                     }
-                    if !status.success() { //if we don't have an initial success, stop!
+                    if !status.success() {
+                        //if we don't have an initial success, stop!
                         error!(?status, "Initial Command failed");
                         return Ok(());
                     }
 
-                    if !stdout.is_empty() { //if we have a stdout, print it
+                    if !stdout.is_empty() && print_initial {
+                        //if we have a stdout, print it
                         io::stdout().lock().write_all(&stdout)?;
                     }
-                    if !stderr.is_empty() { //if we have a stderr, print it
+                    if !stderr.is_empty() {
+                        //if we have a stderr, print it
                         io::stderr().lock().write_all(&stderr)?;
                     }
                 }
@@ -130,7 +137,8 @@ impl Runner {
                 for chunk_size in (0..runs)
                     .chunks(CHUNK_SIZE)
                     .into_iter()
-                    .map(Iterator::count) //run in chunks to avoid constantly polling the stop_rx
+                    .map(Iterator::count)
+                //run in chunks to avoid constantly polling the stop_rx
                 {
                     if stop_rx
                         .as_ref()
@@ -148,7 +156,8 @@ impl Runner {
                                 .send(start.elapsed())
                                 .expect("Error sending result");
 
-                            if status.success() { //log the status
+                            if status.success() {
+                                //log the status
                                 trace!(?status, "Finished command");
                             } else {
                                 warn!(?status, "Command failed");
@@ -169,9 +178,9 @@ impl Runner {
 ///Calculate the mean and standard deviation from a list of microsecond run values
 #[allow(clippy::cast_precision_loss)]
 #[must_use]
-pub fn calculate_mean_standard_deviation(runs: &[u128]) -> (Duration, Duration) {
+pub fn calculate_mean_standard_deviation(runs: &[u128]) -> Option<(Duration, Duration)> {
     if runs.is_empty() {
-        return (Duration::default(), Duration::default());
+        return None;
     }
 
     let len = runs.len() as f64;
@@ -186,8 +195,8 @@ pub fn calculate_mean_standard_deviation(runs: &[u128]) -> (Duration, Duration) 
     let mean = (sum as f64) / len;
     let variance = mean.mul_add(-mean, (sum_of_squares as f64) / len); //(sum_of_squares as f64) / len - mean.powi(2); mean of squares - square of mean
 
-    (
+    Some((
         Duration::from_secs_f64(mean / 1_000_000.0),
         Duration::from_secs_f64(variance.sqrt() / 1_000_000.0),
-    ) //divide by 1_000_000 to account for micros being stored
+    )) //divide by 1_000_000 to account for micros being stored
 }

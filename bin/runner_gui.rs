@@ -237,6 +237,7 @@ impl App for BencherApp {
                                         runs,
                                         Some(recv_stop),
                                         *warmup,
+                                        true,
                                     )
                                     .start(); //make a new run and start it
 
@@ -298,7 +299,8 @@ impl App for BencherApp {
                     let min = run_times.iter().min().copied().unwrap_or_default();
                     let (mean, standard_deviation) = calculate_mean_standard_deviation(
                         &run_times.iter().map(Duration::as_micros).collect_vec(), //have to collect vec as we can't know the size of [u128] at compile-time
-                    ); //get the mean and standard deviation
+                    )
+                    .unwrap_or_default(); //get the mean and standard deviation
 
                     let file_name = format!(
                         "{}_{}",
