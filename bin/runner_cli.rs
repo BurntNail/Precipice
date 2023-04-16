@@ -144,6 +144,7 @@ pub fn run(
         .expect("error from inside handle");
 
     progress_bar.finish_and_clear();
+    println!();
 
     let min_max_median: Option<(u128, u128, u128)> = found_runs
         .iter()
@@ -153,22 +154,24 @@ pub fn run(
         .zip(found_runs.get(found_runs.len() / 2).copied())
         .map(|((a, b), c)| (a, b, c));
     let mean_standard_deviation = calculate_mean_standard_deviation(&found_runs);
+    let no_runs = found_runs.len();
 
     let n = export_ty.export(export_trace_name, found_runs, export_out_file); //export
 
     trace!(?n, "Finished exporting");
     if let Some((mean, standard_deviation)) = mean_standard_deviation {
         println!(
-            "{}: {} ± {}",
-            "Mean ± Standard Deviation".bold(),
+            "{}: {} ± {} : {}",
+            "Mean ± Standard Deviation : Runs".bold(),
             format!("{mean:.3?}").bright_green(),
-            format!("{standard_deviation:.3?}").bright_green()
+            format!("{standard_deviation:.3?}").bright_green(),
+            no_runs.bright_white(),
         );
     }
     if let Some((min, max, median)) = min_max_median {
         println!(
             "{}: {} … {} … {}",
-            "Min … Median … Max       ".bold(),
+            "Min … Median … Max              ".bold(),
             format!("{:.3?}", Duration::from_micros(min as u64)).bright_blue(),
             format!("{:.3?}", Duration::from_micros(median as u64)).bright_green(),
             format!("{:.3?}", Duration::from_micros(max as u64)).bright_red()
