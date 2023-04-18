@@ -9,6 +9,7 @@ use std::{
 
 use crate::bencher::DEFAULT_RUNS;
 use plotly::{Histogram, Plot};
+use tokio::io::AsyncWriteExt;
 
 ///Imports a set of traces from a CSV file
 ///
@@ -17,6 +18,41 @@ use plotly::{Histogram, Plot};
 /// Can fail if we fail to read the file using [`read_to_string`]
 pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>> {
     let lines = read_to_string(file)?; //read in the csv file
+    if lines.trim().is_empty() {
+        //if it is empty (need to trim in case of extra newlines etc), just return an empty list
+        return Ok(vec![]);
+    }
+    let no_lines = lines.lines().count(); //have to get lines twice, as count consumes
+    let lines = lines.lines();
+
+    let mut trace_contents: Vec<(String, Vec<u128>)> = Vec::with_capacity(no_lines);
+    for line in lines {
+        let mut title = String::new();
+        let mut contents = Vec::with_capacity(
+            trace_contents
+                .first()
+                .map_or(DEFAULT_RUNS, |(_, v)| v.len()),
+        ); //make a new vec with the capacity of the first one, or if we don't have one yet, use DEFAULT_RUNS
+        for (j, time) in line.split(',').enumerate() {
+            if j == 0 {
+                title = time.to_string(); //here, it isn't a time, its a title - the first item is the title
+            } else {
+                contents.push(time.parse().expect("unable to parse time")); //here, it is a time, so we need to parse it.
+            }
+        }
+        trace_contents.push((title, contents));
+    }
+
+    Ok(trace_contents)
+}
+
+///Imports a set of traces from a CSV file with tokio
+///
+/// # Errors
+///
+/// Can fail if we fail to read the file using [`read_to_string`]
+pub async fn import_csv_async(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>> {
+    let lines = tokio::fs::read_to_string(file).await?; //read in the csv file
     if lines.trim().is_empty() {
         //if it is empty (need to trim in case of extra newlines etc), just return an empty list
         return Ok(vec![]);
@@ -67,6 +103,28 @@ pub fn get_traces(
     Ok(traces)
 }
 
+///Getting multiple traces from multiple files in CSV format with tokio
+///
+/// # Errors
+/// If we can't do something with the file
+pub async fn get_traces_async(
+    trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
+    trace: Option<(String, Vec<u128>)>,
+) -> io::Result<Vec<(String, Vec<u128>)>> {
+    let mut traces = vec![];
+    for f in trace_file_names {
+        for name_times in import_csv_async(f).await? {
+            traces.push(name_times);
+        }
+    }
+
+    if let Some((name, times)) = trace {
+        //if we got a trace to start with
+        traces.push((name, times)); //add it
+    }
+    Ok(traces)
+}
+
 ///Exports a set of traces to a CSV file
 ///
 /// # Errors
@@ -79,6 +137,20 @@ pub fn export_csv(
 ) -> io::Result<usize> {
     let traces = get_traces(extra_trace_file_names, trace)?; //get the traces from the file and provided
     export_csv_no_file_input(file_name_input, traces) //export
+}
+
+///Exports a set of traces to a CSV file with tokio
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it, or if we fail to read the traces
+pub async fn export_csv_async(
+    trace: Option<(String, Vec<u128>)>,
+    file_name_input: impl AsRef<Path> + Display,
+    extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> io::Result<usize> {
+    let traces = get_traces_async(extra_trace_file_names, trace).await?; //get the traces from the file and provided
+    export_csv_no_file_input_async(file_name_input, traces).await //export
 }
 
 ///Exports a set of traces to a CSV file
@@ -108,6 +180,33 @@ pub fn export_csv_no_file_input(
     Ok(to_be_written.len())
 }
 
+///Exports a set of traces to a CSV file
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it
+pub async fn export_csv_no_file_input_async(
+    file_name_input: impl AsRef<Path> + Display,
+    traces: Vec<(String, Vec<u128>)>,
+) -> io::Result<usize> {
+    let mut to_be_written = String::new(); //string with space to be written to
+
+    for (name, times) in traces {
+        to_be_written += &name;
+        for time in times {
+            to_be_written += ",";
+            to_be_written += &time.to_string();
+        }
+        to_be_written += "\n";
+    } //manually write a csv - title,time1,time2,time3 etc
+
+    let mut file = tokio::fs::File::create(format!("{file_name_input}.csv")).await?; //make a file
+    let to_be_written = to_be_written.as_bytes(); //get the bytes to be written
+    file.write_all(to_be_written).await?; //write them all
+
+    Ok(to_be_written.len())
+}
+
 ///Exports a set of traces to a plotly plot
 ///
 /// # Errors
@@ -120,6 +219,20 @@ pub fn export_html(
 ) -> io::Result<usize> {
     let traces = get_traces(extra_trace_file_names, trace)?; //get the traces from the file and provided
     export_html_no_file_input(file_name_input, traces) //and export them
+}
+
+///Exports a set of traces to a plotly plot with tokio
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it, or if we fail to read the traces
+pub async fn export_html_async(
+    trace: Option<(String, Vec<u128>)>,
+    file_name_input: impl AsRef<Path> + Display,
+    extra_trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
+) -> io::Result<usize> {
+    let traces = get_traces_async(extra_trace_file_names, trace).await?; //get the traces from the file and provided
+    export_html_no_file_input_async(file_name_input, traces).await //and export them
 }
 
 ///Exports a set of traces to a HTML file
@@ -140,6 +253,32 @@ pub fn export_html_no_file_input(
     let html = plot.to_html(); //make the html
     let html = html.as_bytes(); //get the bytes - 2 steps to avoid dropping temporary value
     file.write_all(html)?; //write all of the bytes
+
+    Ok(html.len())
+}
+
+///Exports a set of traces to a HTML file
+///
+/// # Errors
+///
+/// Can have errors if we fail to create a file or write to it
+pub async fn export_html_no_file_input_async(
+    file_name_input: impl AsRef<Path> + Display,
+    traces: Vec<(String, Vec<u128>)>,
+) -> io::Result<usize> {
+    let mut file = tokio::fs::File::create(format!("{file_name_input}.html")).await?; //make a file
+
+    let mut plot = Plot::new(); //make a new plotly plot
+    for (name, trace) in traces {
+        plot.add_trace(Histogram::new(trace).name(name)); //for each trace, add it to a plotly plot
+    }
+
+    let html = plot.to_html(); //make the html
+    let html = html.as_bytes(); //get the bytes - 2 steps to avoid dropping temporary value
+
+    drop(plot);
+
+    file.write_all(html).await?; //write all of the bytes
 
     Ok(html.len())
 }
