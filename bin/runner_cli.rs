@@ -95,7 +95,7 @@ pub fn run(
     let (stop_tx, stop_rx) = channel(); //make a channel for stopping
 
     let mut found_runs = vec![]; //make a vec for runs we've received
-    let (handle, rx) = Runner::new(
+    let (handle, rx) = Runner::new_sync(
         binary,
         cli_args,
         runs,
