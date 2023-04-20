@@ -12,7 +12,7 @@ use crate::{
     exporter_cli::ExporterCLIArgs, exporter_gui::ExporterApp, runner_cli::FullCLIArgs,
     runner_gui::BencherApp,
 };
-use benchmarker::io::{export_csv, export_html};
+use benchmarker::io::{export_csv, export_csv_async, export_html, export_html_async};
 use clap::{Parser, ValueEnum};
 use std::io;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
@@ -56,7 +56,15 @@ fn main() {
     match Args::parse() {
         //switch statement on the arguments, parsed from the CLI, which is an enum, so we switch on that enum
         Args::ExporterCLI(args) => exporter_cli::run(args),
-        Args::RunnerCLI(args) => runner_cli::run(args),
+        Args::RunnerCLI(args) => {
+            tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()
+                .expect("unable to build tokio rt")
+                .block_on(async {
+                    runner_cli::run(args).await;
+                });
+        }
         Args::ExporterGUI => {
             eframe::run_native(
                 //Run a new native window with default options, and the ExporterApp
@@ -111,6 +119,37 @@ impl ExportType {
                 export_file_name,
                 Vec::<String>::new(),
             ),
+        }
+    }
+
+    ///Export to the relevant format
+    ///
+    /// # Errors
+    /// If we can't write to or create the file
+    #[instrument]
+    async fn export_async(
+        self,
+        trace_name: String,
+        runs: Vec<u128>,
+        export_file_name: String,
+    ) -> io::Result<usize> {
+        match self {
+            Self::HTML => {
+                export_html_async(
+                    Some((trace_name, runs)),
+                    export_file_name,
+                    Vec::<String>::new(), //since we don't have any extra traces for here, we just give it an empty list. If we don't give it a type using the turbofish, then we get compiler errors on interpreting generics.
+                )
+                .await
+            }
+            Self::CSV => {
+                export_csv_async(
+                    Some((trace_name, runs)),
+                    export_file_name,
+                    Vec::<String>::new(),
+                )
+                .await
+            }
         }
     }
 }

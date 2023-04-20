@@ -5,7 +5,8 @@ use benchmarker::bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RU
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;
-use std::{ffi::OsStr, path::PathBuf, sync::mpsc::channel, time::Duration};
+use std::{ffi::OsStr, path::PathBuf, time::Duration};
+use tokio::sync::mpsc::unbounded_channel;
 
 /// The CLI args for running stuff
 #[derive(Clone, Debug, Parser)] //struct for CLI args which can be parsed/cloned/printed
@@ -38,7 +39,7 @@ pub struct FullCLIArgs {
 
 ///Run the runner CLI
 #[instrument]
-pub fn run(
+pub async fn run(
     FullCLIArgs {
         //destructure the struct right here to avoid having to do it in the function
         binary,
@@ -92,10 +93,10 @@ pub fn run(
         println!("{} {}", "Benchmark:".bold(), binary_and_args.italic());
     }
 
-    let (stop_tx, stop_rx) = channel(); //make a channel for stopping
+    let (stop_tx, stop_rx) = unbounded_channel(); //make a channel for stopping
 
     let mut found_runs = vec![]; //make a vec for runs we've received
-    let (handle, rx) = Runner::new(
+    let (handle, mut rx) = Runner::new_async(
         binary,
         cli_args,
         runs,
@@ -103,7 +104,8 @@ pub fn run(
         !no_warmup,
         print_initial,
     )
-    .start(); //get a handle from a new runner, with the binary etc
+    .start()
+    .await; //get a handle from a new runner, with the binary etc
 
     std::thread::sleep(Duration::from_millis(50)); //wait to make sure that we show the progress bar underneath the initial run
 
@@ -126,22 +128,15 @@ pub fn run(
     );
 
     while !handle.is_finished() {
-        //while the handle isn't finished, that is whilst we've still got runs
-        let mut delta = 0;
-        for time in rx.try_iter() {
-            //use try_iter to avoid blocking so we keep on going and updating the progress bar
+        if let Some(time) = rx.recv().await {
             found_runs.push(time.as_micros()); //for every run we've got since the last poll, add it to our list
-            delta += 1; //and increment our delta
-        }
-
-        if delta > 0 {
-            progress_bar.inc(delta); //update our progress bar with the delta
+            progress_bar.inc(1);
         }
     }
     handle
-        .join() //join the handle
-        .expect("unable to join handle")
-        .expect("error from inside handle");
+        .await
+        .expect("error in tokio")
+        .expect("error from thread");
 
     progress_bar.finish_and_clear();
     println!();
