@@ -224,7 +224,6 @@ impl Runner<true> {
     }
 
     ///Starts the runner using async tasks
-    #[must_use]
     #[instrument(skip(self))]
     pub async fn start(self) -> (TokioJoinHandle<io::Result<()>>, TokioReceiver<Duration>) {
         let Self {
