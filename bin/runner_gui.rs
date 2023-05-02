@@ -231,7 +231,7 @@ impl App for BencherApp {
                                     self.runs = runs; //set the runner app variable for the runs
                                     let (send_stop, recv_stop) = channel(); //Make a new channel for stopping/starting the Runner thread
 
-                                    let (handle, run_recv) = Runner::new_sync(
+                                    let (handle, run_recv) = Runner::<false>::new(
                                         binary.clone().unwrap(),
                                         cli_args.backing_vec(),
                                         runs,

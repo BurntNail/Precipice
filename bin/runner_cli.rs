@@ -96,7 +96,7 @@ pub async fn run(
     let (stop_tx, stop_rx) = unbounded_channel(); //make a channel for stopping
 
     let mut found_runs = vec![]; //make a vec for runs we've received
-    let (handle, mut rx) = Runner::new_async(
+    let (handle, mut rx) = Runner::<true>::new(
         binary,
         cli_args,
         runs,

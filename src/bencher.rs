@@ -26,7 +26,7 @@ use std::{
     process::{Command, Output, Stdio},
     sync::mpsc::{channel, Receiver},
     thread::JoinHandle,
-    time::{Duration, Instant},
+    time::{Duration, Instant}, marker::PhantomData,
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -35,18 +35,49 @@ use tokio::{
     task::JoinHandle as TokioJoinHandle,
 };
 
-///Union for a receiver
+use self::sealed::Sealed;
+
+
+mod sealed {
+    use super::Receivers;
+
+    pub trait Sealed { }
+}
+trait RecieverSynchronisity: Sealed {
+    type Receiver;
+    fn from_receiver (f: Self::Receiver) -> Receivers;
+    unsafe fn from_receivers(receivers: Receivers) -> Self::Receiver;
+}
+
+pub struct SyncStdLib;
+pub struct AsyncTokio;
+
+impl Sealed for SyncStdLib {}
+impl Sealed for AsyncTokio {}
+
+impl<T> RecieverSynchronisity for SyncStdLib {
+    type Receiver = Receiver<T>;
+    fn from_receiver (f: Self::Receiver) -> Receivers {
+        Receivers { sync: f }
+    }
+}
+impl<T> RecieverSynchronisity for AsyncTokio {
+    type Receiver = TokioReceiver<T>;
+    fn from_receiver (f: Self::Receiver) -> Receivers {
+        Receivers { not_sync: f }
+    }
+}
+
+///Union for a receiver - this is used for having one thing to store in both the async and sync versions
 union Receivers {
     ///sync stdlib version
     sync: ManuallyDrop<Receiver<()>>,
-    ///async [`tokio`] version
+    ///async [`tokio`] version. Called `not_sync` as `async` is a reserved keyword in Rust 2021.
     not_sync: ManuallyDrop<TokioReceiver<()>>,
 }
 
-///Struct to build a Bencher - takes in arguments using a builder pattern, then you can start a run.
-///
-/// No constructor exists - use the struct literal form with [`Default::default`]
-pub struct Runner<const IS_ASYNC: bool> {
+///Struct to build a Bencher. 
+pub struct Runner<SYNC: RecieverSynchronisity> {
     ///The binary to run
     binary: PathBuf,
     ///The args to pass to the binary
@@ -54,11 +85,19 @@ pub struct Runner<const IS_ASYNC: bool> {
     ///The number of runs
     runs: usize,
     ///The channel to stop running
+    /// 
+    ///**SAFETY INVARIANT: ** Assuming that this is a [`Some`] variant, the contents of the union must be as following:
+    /// - SYNC: SyncStdLib => Receivers.not_sync
+    /// - SYNC: AsyncTokio => Receivers.sync
+    /// 
+    /// This is kept by ensuring that the struct can only be made externally using constructors which uphold this
     stop_rx: Option<Receivers>,
-    ///Whether to run any warmup runs to cache the program
+    ///Whether to run a warmup run to cache the program in the CPU
     warmup: bool,
     ///Whether or not to print the initial run
     print_initial: bool,
+    ///A phantom data to ensure the marker flag works
+    _pd: PhantomData<RecieverSynchronisity>,
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
@@ -67,10 +106,10 @@ const CHUNK_SIZE: usize = 5;
 ///Useful constant for default runs
 pub const DEFAULT_RUNS: usize = 1_000;
 
-impl Runner<false> {
-    ///Constructor
+impl Runner<{RecieverSynchronisity::SyncStdLib}> {
+    ///Constructor for a synchronous version
     #[must_use]
-    pub fn new_sync(
+    pub fn new(
         binary: PathBuf,
         cli_args: Vec<String>,
         runs: usize,
@@ -83,14 +122,15 @@ impl Runner<false> {
             cli_args,
             runs,
             stop_rx: stop_rx.map(|r| Receivers {
-                sync: ManuallyDrop::new(r),
+                sync: ManuallyDrop::new(r), //SAFETY: Sync, so we use the sync variant
             }),
             warmup,
             print_initial,
+            _pd: PhantomData
         }
     }
 
-    ///Starts the runner in a new thread
+    ///Starts the runner in a new thread, using all synchronous code.
     #[must_use]
     #[instrument(skip(self))]
     pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
@@ -101,18 +141,19 @@ impl Runner<false> {
             stop_rx,
             warmup,
             print_initial,
+            _pd: _
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
-        let stop_rx = unsafe { stop_rx.map(|x| x.sync) };
+        let stop_rx = unsafe { stop_rx.map(|x| x.sync) }; //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the sync version
 
-        let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
+        let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations to the main ui thread
 
         let handle = std::thread::Builder::new()
-            .name("benchmark_runner".into()) //new thread to run the benchmarks on
-            .spawn(move || {
+            .name("benchmark_runner".into()) //new thread to run the benchmarks on - named so it is easier to debug
+            .spawn(move || { //move means memory move all variables into this thread's stack/heap
                 info!(%runs, ?binary, ?cli_args, ?warmup, "Starting benching.");
 
-                let mut command = Command::new(binary);
+                let mut command = Command::new(binary); //create a new standard library command
                 command.args(cli_args); //Create a new Command and add our arguments
 
                 if let Ok(cd) = current_dir() {
@@ -200,10 +241,10 @@ impl Runner<false> {
     }
 }
 
-impl Runner<true> {
+impl Runner<{RecieverSynchronisity::AsyncTokio}> {
     ///Constructor
     #[must_use]
-    pub fn new_async(
+    pub fn new(
         binary: PathBuf,
         cli_args: Vec<String>,
         runs: usize,
@@ -216,10 +257,11 @@ impl Runner<true> {
             cli_args,
             runs,
             stop_rx: stop_rx.map(|r| Receivers {
-                not_sync: ManuallyDrop::new(r),
+                not_sync: ManuallyDrop::new(r), //SAFETY: async, so use not_sync variant
             }),
             warmup,
             print_initial,
+            _pd: PhantomData,
         }
     }
 
@@ -233,9 +275,10 @@ impl Runner<true> {
             stop_rx,
             warmup,
             print_initial,
+            _pd: _
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
-        let mut stop_rx = unsafe { stop_rx.map(|x| x.not_sync) };
+        let mut stop_rx = unsafe { stop_rx.map(|x| x.not_sync) }; //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the sync version
 
         let (duration_sender, duration_receiver) = tokio_channel(); //Here, we create a channel to send over the durations
 
