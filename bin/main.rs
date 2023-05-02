@@ -53,6 +53,10 @@ fn main() {
         )
         .init();
 
+    if let Err(e) = color_eyre::install() {
+        error!(?e, "Error installing color_eyre");
+    }
+
     match Args::parse() {
         //switch statement on the arguments, parsed from the CLI, which is an enum, so we switch on that enum
         Args::ExporterCLI(args) => exporter_cli::run(args),

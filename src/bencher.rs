@@ -16,17 +16,20 @@
 //! handle.join().unwrap().unwrap();
 //! ```
 
+use crate::bencher::async_receivers_bridge_code::{
+    AsyncTokio, ReceiverSynchronicity, Receivers, SyncStdLib,
+};
 use itertools::Itertools;
 use std::{
     env::current_dir,
     io,
     io::Write,
-    mem::ManuallyDrop,
+    marker::PhantomData,
     path::PathBuf,
     process::{Command, Output, Stdio},
     sync::mpsc::{channel, Receiver},
     thread::JoinHandle,
-    time::{Duration, Instant}, marker::PhantomData,
+    time::{Duration, Instant},
 };
 use tokio::{
     io::AsyncWriteExt,
@@ -35,49 +38,10 @@ use tokio::{
     task::JoinHandle as TokioJoinHandle,
 };
 
-use self::sealed::Sealed;
+mod async_receivers_bridge_code;
 
-
-mod sealed {
-    use super::Receivers;
-
-    pub trait Sealed { }
-}
-trait RecieverSynchronisity: Sealed {
-    type Receiver;
-    fn from_receiver (f: Self::Receiver) -> Receivers;
-    unsafe fn from_receivers(receivers: Receivers) -> Self::Receiver;
-}
-
-pub struct SyncStdLib;
-pub struct AsyncTokio;
-
-impl Sealed for SyncStdLib {}
-impl Sealed for AsyncTokio {}
-
-impl<T> RecieverSynchronisity for SyncStdLib {
-    type Receiver = Receiver<T>;
-    fn from_receiver (f: Self::Receiver) -> Receivers {
-        Receivers { sync: f }
-    }
-}
-impl<T> RecieverSynchronisity for AsyncTokio {
-    type Receiver = TokioReceiver<T>;
-    fn from_receiver (f: Self::Receiver) -> Receivers {
-        Receivers { not_sync: f }
-    }
-}
-
-///Union for a receiver - this is used for having one thing to store in both the async and sync versions
-union Receivers {
-    ///sync stdlib version
-    sync: ManuallyDrop<Receiver<()>>,
-    ///async [`tokio`] version. Called `not_sync` as `async` is a reserved keyword in Rust 2021.
-    not_sync: ManuallyDrop<TokioReceiver<()>>,
-}
-
-///Struct to build a Bencher. 
-pub struct Runner<SYNC: RecieverSynchronisity> {
+///Struct to build a Bencher.
+pub struct Runner<SYNC: ReceiverSynchronicity> {
     ///The binary to run
     binary: PathBuf,
     ///The args to pass to the binary
@@ -85,11 +49,11 @@ pub struct Runner<SYNC: RecieverSynchronisity> {
     ///The number of runs
     runs: usize,
     ///The channel to stop running
-    /// 
+    ///
     ///**SAFETY INVARIANT: ** Assuming that this is a [`Some`] variant, the contents of the union must be as following:
     /// - SYNC: SyncStdLib => Receivers.not_sync
     /// - SYNC: AsyncTokio => Receivers.sync
-    /// 
+    ///
     /// This is kept by ensuring that the struct can only be made externally using constructors which uphold this
     stop_rx: Option<Receivers>,
     ///Whether to run a warmup run to cache the program in the CPU
@@ -97,7 +61,7 @@ pub struct Runner<SYNC: RecieverSynchronisity> {
     ///Whether or not to print the initial run
     print_initial: bool,
     ///A phantom data to ensure the marker flag works
-    _pd: PhantomData<RecieverSynchronisity>,
+    _pd: PhantomData<SYNC>,
 }
 
 ///Runs a certain number of runs every time we see no stop signal, to avoid constantly polling the stop receiver
@@ -106,14 +70,14 @@ const CHUNK_SIZE: usize = 5;
 ///Useful constant for default runs
 pub const DEFAULT_RUNS: usize = 1_000;
 
-impl Runner<{RecieverSynchronisity::SyncStdLib}> {
-    ///Constructor for a synchronous version
+impl<SYNC: ReceiverSynchronicity> Runner<SYNC> {
+    ///Constructor
     #[must_use]
     pub fn new(
         binary: PathBuf,
         cli_args: Vec<String>,
         runs: usize,
-        stop_rx: Option<Receiver<()>>,
+        stop_rx: Option<SYNC::Receiver>,
         warmup: bool,
         print_initial: bool,
     ) -> Self {
@@ -121,19 +85,19 @@ impl Runner<{RecieverSynchronisity::SyncStdLib}> {
             binary,
             cli_args,
             runs,
-            stop_rx: stop_rx.map(|r| Receivers {
-                sync: ManuallyDrop::new(r), //SAFETY: Sync, so we use the sync variant
-            }),
+            stop_rx: stop_rx.map(SYNC::from_receiver),
             warmup,
             print_initial,
-            _pd: PhantomData
+            _pd: PhantomData,
         }
     }
+}
 
+impl Runner<SyncStdLib> {
     ///Starts the runner in a new thread, using all synchronous code.
     #[must_use]
     #[instrument(skip(self))]
-    pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
+    pub fn start_sync(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
         let Self {
             runs,
             binary,
@@ -141,16 +105,17 @@ impl Runner<{RecieverSynchronisity::SyncStdLib}> {
             stop_rx,
             warmup,
             print_initial,
-            _pd: _
+            _pd: _,
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
-        let stop_rx = unsafe { stop_rx.map(|x| x.sync) }; //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the sync version
+        let stop_rx = stop_rx.map(|r| unsafe { SyncStdLib::from_receivers(r) }); //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the sync version
 
         let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations to the main ui thread
 
         let handle = std::thread::Builder::new()
             .name("benchmark_runner".into()) //new thread to run the benchmarks on - named so it is easier to debug
-            .spawn(move || { //move means memory move all variables into this thread's stack/heap
+            .spawn(move || {
+                //move means memory move all variables into this thread's stack/heap
                 info!(%runs, ?binary, ?cli_args, ?warmup, "Starting benching.");
 
                 let mut command = Command::new(binary); //create a new standard library command
@@ -227,12 +192,6 @@ impl Runner<{RecieverSynchronisity::SyncStdLib}> {
                     }
                 }
 
-                if let Some(mut stop_rx) = stop_rx {
-                    unsafe {
-                        ManuallyDrop::drop(&mut stop_rx);
-                    }
-                }
-
                 Ok(())
             })
             .expect("error creating thread");
@@ -241,33 +200,10 @@ impl Runner<{RecieverSynchronisity::SyncStdLib}> {
     }
 }
 
-impl Runner<{RecieverSynchronisity::AsyncTokio}> {
-    ///Constructor
-    #[must_use]
-    pub fn new(
-        binary: PathBuf,
-        cli_args: Vec<String>,
-        runs: usize,
-        stop_rx: Option<TokioReceiver<()>>,
-        warmup: bool,
-        print_initial: bool,
-    ) -> Self {
-        Self {
-            binary,
-            cli_args,
-            runs,
-            stop_rx: stop_rx.map(|r| Receivers {
-                not_sync: ManuallyDrop::new(r), //SAFETY: async, so use not_sync variant
-            }),
-            warmup,
-            print_initial,
-            _pd: PhantomData,
-        }
-    }
-
+impl Runner<AsyncTokio> {
     ///Starts the runner using async tasks
     #[instrument(skip(self))]
-    pub async fn start(self) -> (TokioJoinHandle<io::Result<()>>, TokioReceiver<Duration>) {
+    pub async fn start_async(self) -> (TokioJoinHandle<io::Result<()>>, TokioReceiver<Duration>) {
         let Self {
             runs,
             binary,
@@ -275,10 +211,10 @@ impl Runner<{RecieverSynchronisity::AsyncTokio}> {
             stop_rx,
             warmup,
             print_initial,
-            _pd: _
+            _pd: _,
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
         let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
-        let mut stop_rx = unsafe { stop_rx.map(|x| x.not_sync) }; //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the sync version
+        let mut stop_rx = stop_rx.map(|r| unsafe { SyncStdLib::from_receivers(r) }); //SAFETY: since we can only get this struct from the constructor, we are sure that this will be the async version
 
         let (duration_sender, duration_receiver) = tokio_channel(); //Here, we create a channel to send over the durations
 
@@ -366,12 +302,6 @@ impl Runner<{RecieverSynchronisity::AsyncTokio}> {
                     }
                 } else {
                     break; //if we did receive something on the stop channel, break the loop
-                }
-            }
-
-            if let Some(mut stop_rx) = stop_rx {
-                unsafe {
-                    ManuallyDrop::drop(&mut stop_rx);
                 }
             }
 

@@ -1,6 +1,6 @@
 <component name="ProjectRunConfigurationManager">
   <configuration default="false" name="Run KE_Rust CLI in WT" type="ShConfigurationType">
-    <option name="SCRIPT_TEXT" value="wt.exe PowerShell.exe -NoExit -Command &quot;cargo r -- runner-cli -b ..\KE_Rust\target\release\mandlebrot.exe&quot;" />
+    <option name="SCRIPT_TEXT" value="$Env:RUST_BACKTRACE=&quot;full&quot;; $Env:RUST_LIB_BACKTRACE=&quot;full&quot;; wt.exe PowerShell.exe -NoExit -Command &quot;cargo r -- runner-cli -b ..\KE_Rust\target\release\mandlebrot.exe&quot;" />
     <option name="INDEPENDENT_SCRIPT_PATH" value="true" />
     <option name="SCRIPT_PATH" value="" />
     <option name="SCRIPT_OPTIONS" value="" />

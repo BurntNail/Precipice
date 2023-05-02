@@ -11,6 +11,7 @@ edition = "2021"
 
 [dependencies]
 clap = { version = "4.2.5", features = ["derive"] }
+color-eyre = "0.6.2"
 ctrlc = "3.2.5"
 eframe = { version = "0.21.3", features = ["persistence"] }
 egui = { version = "0.21.0", features = ["persistence"] }

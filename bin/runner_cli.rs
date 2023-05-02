@@ -96,7 +96,7 @@ pub async fn run(
     let (stop_tx, stop_rx) = unbounded_channel(); //make a channel for stopping
 
     let mut found_runs = vec![]; //make a vec for runs we've received
-    let (handle, mut rx) = Runner::<true>::new(
+    let (handle, mut rx) = Runner::new(
         binary,
         cli_args,
         runs,
@@ -104,7 +104,7 @@ pub async fn run(
         !no_warmup,
         print_initial,
     )
-    .start()
+    .start_async()
     .await; //get a handle from a new runner, with the binary etc
 
     std::thread::sleep(Duration::from_millis(50)); //wait to make sure that we show the progress bar underneath the initial run
