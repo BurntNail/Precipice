@@ -40,4 +40,21 @@ precipice runner-cli -b "program" -r 2500
 The default trace name and file name are just the binary with the runs, and that can be customised further with the options available at `--help`.
 
 ### Exporter CLI
-TODO
+The exporter can export from any number of files, by adding more `-i` flags - for example:
+```sh
+precipice exporter-cli -i "bench_1.csv" -i "bench_2.csv"
+```
+
+By default, the file name to export to is `precipice_bench` and it exports to a [plotly.js](https://plotly.com/javascript/) document, but you can change this:
+```sh
+precipice exporter-cli -i "bench_1.csv" -o "bench_1" # exports to bench_1.html
+precipice exporter-cli -i "bench_1.csv" -i "bench_2.csv" -t csv # exports to precipice_bench.csv
+```
+The main utility in exporting to CSV is getting multiple traces into one file.
+
+
+## Installation
+I don't have any installers, and this isn't on any package managers right now. The only way to run it is to get the binary from the releases page and get it into your path, or to download it using the rust dependency manager:
+```sh
+cargo install precipice
+```
