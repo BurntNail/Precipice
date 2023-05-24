@@ -13,7 +13,7 @@ edition = "2021"
 clap = { version = "4.3.0", features = ["derive"] }
 color-eyre = "0.6.2"
 ctrlc = "3.3.1"
-eframe = { version = "0.21.3", features = ["persistence"] }
+eframe = { version = "0.22.0", features = ["persistence"] }
 egui = { version = "0.22.0", features = ["persistence"] }
 egui_file = "0.8.2"
 indicatif = "0.17.3"
