@@ -136,6 +136,8 @@ pub fn run(
         if delta > 0 {
             progress_bar.inc(delta); //update our progress bar with the delta
         }
+
+        std::thread::yield_now();
     }
     handle
         .join() //join the handle
