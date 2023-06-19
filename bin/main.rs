@@ -12,9 +12,7 @@ use crate::{
     exporter_cli::ExporterCLIArgs, exporter_gui::ExporterApp, runner_cli::FullCLIArgs,
     runner_gui::BencherApp,
 };
-use benchmarker::io::{export_csv, export_html};
-use clap::{Parser, ValueEnum};
-use std::io;
+use clap::Parser;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use tracing_tree::HierarchicalLayer;
 
@@ -75,43 +73,6 @@ fn main() {
                 Box::new(|cc| Box::new(BencherApp::new(cc))),
             )
             .expect("Error with eframe");
-        }
-    }
-}
-
-#[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
-#[allow(clippy::upper_case_acronyms)]
-///Any format
-pub enum ExportType {
-    ///HTML graph
-    HTML,
-    ///CSV file with everything
-    CSV,
-}
-
-impl ExportType {
-    ///Export to the relevant format
-    ///
-    /// # Errors
-    /// If we can't write to or create the file
-    #[instrument]
-    pub fn export(
-        self,
-        trace_name: String,
-        runs: Vec<u128>,
-        export_file_name: String,
-    ) -> io::Result<usize> {
-        match self {
-            Self::HTML => export_html(
-                Some((trace_name, runs)),
-                export_file_name,
-                Vec::<String>::new(), //since we don't have any extra traces for here, we just give it an empty list. If we don't give it a type using the turbofish, then we get compiler errors on interpreting generics.
-            ),
-            Self::CSV => export_csv(
-                Some((trace_name, runs)),
-                export_file_name,
-                Vec::<String>::new(),
-            ),
         }
     }
 }

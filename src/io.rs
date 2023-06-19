@@ -6,7 +6,7 @@ use std::{
     io::{self, Write},
     path::Path,
 };
-
+use clap::ValueEnum;
 use crate::bencher::DEFAULT_RUNS;
 use plotly::{Histogram, Plot};
 
@@ -142,4 +142,41 @@ pub fn export_html_no_file_input(
     file.write_all(html)?; //write all of the bytes
 
     Ok(html.len())
+}
+
+#[derive(Copy, Clone, Debug, ValueEnum, strum::Display)]
+#[allow(clippy::upper_case_acronyms)]
+///Any format
+pub enum ExportType {
+    ///HTML graph
+    HTML,
+    ///CSV file with everything
+    CSV,
+}
+
+impl ExportType {
+    ///Export to the relevant format
+    ///
+    /// # Errors
+    /// If we can't write to or create the file
+    #[instrument]
+    pub fn export(
+        self,
+        trace_name: String,
+        runs: Vec<u128>,
+        export_file_name: String,
+    ) -> io::Result<usize> {
+        match self {
+            Self::HTML => export_html(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(), //since we don't have any extra traces for here, we just give it an empty list. If we don't give it a type using the turbofish, then we get compiler errors on interpreting generics.
+            ),
+            Self::CSV => export_csv(
+                Some((trace_name, runs)),
+                export_file_name,
+                Vec::<String>::new(),
+            ),
+        }
+    }
 }

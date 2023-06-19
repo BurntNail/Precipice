@@ -1,7 +1,6 @@
 //! Binary part for running stuff in a CLI
 
-use crate::ExportType;
-use benchmarker::bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS};
+use benchmarker::{bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS}, io::ExportType};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use owo_colors::OwoColorize;

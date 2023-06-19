@@ -4,8 +4,7 @@
 //! 
 //! The `run` function collects the arguments, gets traces and then exports.
 
-use crate::ExportType;
-use benchmarker::io::{export_csv_no_file_input, export_html_no_file_input, get_traces};
+use benchmarker::io::{export_csv_no_file_input, export_html_no_file_input, get_traces, ExportType};
 use clap::Parser;
 use std::path::PathBuf;
 
