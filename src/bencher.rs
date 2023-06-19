@@ -41,7 +41,7 @@ pub struct Runner {
     ///The channel to stop running
     pub stop_rx: Option<Receiver<()>>,
     ///Whether to run any warmup runs to cache the program
-    pub warmup: bool,
+    pub warmup: u8,
     ///Whether or not to print the initial run
     pub print_initial: bool,
 }
@@ -60,7 +60,7 @@ impl Runner {
         cli_args: Vec<String>,
         runs: usize,
         stop_rx: Option<Receiver<()>>,
-        warmup: bool,
+        warmup: u8,
         print_initial: bool,
     ) -> Self {
         Self {
@@ -101,9 +101,9 @@ impl Runner {
                     command.current_dir(cd); //If we have a current directory, add that to the Command
                 }
 
-                let mut start = Instant::now();
 
-                {
+                let mut is_first = true;
+                for _ in 0..warmup {
                     //either the first run, or the warmup run. if we print initial, we send the stdout, and we always send the stderr
                     let Output {
                         status,
@@ -111,18 +111,14 @@ impl Runner {
                         stderr,
                     } = command.output()?;
 
-                    if !warmup {
-                        //but we only send the time if this isn't a warmup
-                        let elapsed = start.elapsed();
-                        duration_sender.send(elapsed).expect("error sending time");
-                    }
                     if !status.success() {
                         //if we don't have an initial success, stop!
                         error!(?status, "Initial Command failed");
                         return Ok(());
                     }
 
-                    if !stdout.is_empty() && print_initial {
+                    if print_initial && is_first && !stdout.is_empty() {
+                        is_first = false;
                         //if we have a stdout, print it
                         io::stdout().lock().write_all(&stdout)?;
                     }
@@ -133,6 +129,8 @@ impl Runner {
                 }
 
                 command.stdout(Stdio::null()).stderr(Stdio::null()); //now set the command to not have a stdout or stderr
+
+                let mut start;
 
                 for chunk_size in (0..runs)
                     .chunks(CHUNK_SIZE)
@@ -149,11 +147,11 @@ impl Runner {
 
                         for _ in 0..chunk_size {
                             start = Instant::now(); //send the elapsed duration and reset it
-
                             let status = command.status()?; //run the command
+                            let elapsed = start.elapsed(); //get how long it took
 
                             duration_sender
-                                .send(start.elapsed())
+                                .send(elapsed)
                                 .expect("Error sending result");
 
                             if status.success() {
