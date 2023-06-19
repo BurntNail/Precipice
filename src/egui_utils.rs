@@ -1,6 +1,6 @@
 //! Makes an optionally ordered list of things to be displayed in an EGUI window
 
-use egui::{ScrollArea, Ui};
+use eframe::egui::{ScrollArea, Ui};
 use std::{
     fmt::Debug,
     ops::{Deref, DerefMut},

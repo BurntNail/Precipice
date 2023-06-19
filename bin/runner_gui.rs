@@ -11,8 +11,7 @@ use benchmarker::{
     io::{export_csv, export_html},
     EGUI_STORAGE_SEPARATOR,
 };
-use eframe::{App, CreationContext, Frame, Storage};
-use egui::{CentralPanel, Context, ProgressBar, Widget};
+use eframe::{App, CreationContext, Frame, Storage, egui::{CentralPanel, ProgressBar, Widget, Context}};
 use egui_file::FileDialog;
 use itertools::Itertools;
 use std::{

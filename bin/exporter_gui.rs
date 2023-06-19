@@ -6,8 +6,7 @@ use benchmarker::{
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
     EGUI_STORAGE_SEPARATOR,
 };
-use eframe::{App, Frame, Storage};
-use egui::{CentralPanel, Context};
+use eframe::{App, Frame, Storage, egui::{Context, CentralPanel}};
 use egui_file::FileDialog;
 use itertools::Itertools;
 use std::{
