@@ -11,7 +11,6 @@
 //TODO: make some functions use color_eyre or custom error types, to remove the expects
 
 pub mod bencher;
-pub mod egui_utils;
 pub mod io;
 
 #[macro_use]

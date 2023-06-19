@@ -6,7 +6,6 @@
 
 //imports
 use benchmarker::{
-    egui_utils::{ChangeType, EguiList},
     io::{export_csv_no_file_input, export_html_no_file_input, import_csv},
     EGUI_STORAGE_SEPARATOR,
 };
@@ -18,6 +17,7 @@ use std::{
     path::{Path, PathBuf},
     sync::mpsc::{channel, Receiver, Sender},
 };
+use crate::egui_utils::{ChangeType, EguiList};
 
 ///Struct for an [`eframe::App`] for exports.
 pub struct ExporterApp {

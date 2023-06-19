@@ -22,6 +22,7 @@ mod exporter_cli;
 mod exporter_gui;
 mod runner_cli;
 mod runner_gui;
+mod egui_utils;
 
 //allow me to use tracing macros (eg. info! etc) without needing to import all of them.
 #[macro_use]

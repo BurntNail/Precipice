@@ -7,13 +7,13 @@
 
 use benchmarker::{
     bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS},
-    egui_utils::EguiList,
     io::{export_csv, export_html},
     EGUI_STORAGE_SEPARATOR,
 };
 use eframe::{App, CreationContext, Frame, Storage, egui::{CentralPanel, ProgressBar, Widget, Context}};
 use egui_file::FileDialog;
 use itertools::Itertools;
+use crate::egui_utils::EguiList;
 use std::{
     ffi::OsStr,
     io,
