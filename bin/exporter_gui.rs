@@ -1,4 +1,8 @@
-//! Export runs in a GUI
+//! Binary for dealing with exporting traces to a file via a GUI interface.
+//! 
+//! It caches which files were picked last save, and then allows you to pick the files to take from (adding their traces to a list), the export name, and whether or not we totally clear out a file when we write to it.
+//! 
+//! The file reading is done on a separate thread to avoid UI slowing down whilst the file is read.
 
 //imports
 use benchmarker::{
@@ -38,6 +42,7 @@ impl ExporterApp {
     #[instrument(skip(storage))]
     pub fn new(storage: Option<&dyn Storage>) -> Self {
         trace!(has_storage=?storage.is_some(), "Starting new Exporter App");
+        
         let files: Vec<PathBuf> = storage
             .and_then(|s| s.get_string("files")) //if we have storage, then get out the content from the key "files"
             .map(|s| {

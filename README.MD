@@ -2,6 +2,8 @@
 
 A command-line and GUI benchmarking tool and graph generator.
 
+![LOCs](https://tokei.rs/b1/github/BurntNail/Precipice)](https://github.com/BurntNail/Precipice).
+
 ## Features
 
  - Providing statistics (eg. min, max, standard deviation) across a custom number of runs.

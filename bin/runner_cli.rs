@@ -1,4 +1,4 @@
-//! Run stuff in a CLI
+//! Binary part for running stuff in a CLI
 
 use crate::ExportType;
 use benchmarker::bencher::{calculate_mean_standard_deviation, Runner, DEFAULT_RUNS};

@@ -1,4 +1,8 @@
-//! Allows to export to CSV
+//! Binary for dealing with exporting traces to a file.
+//! 
+//! Firstly, you need a `main` function which calls this. Arguments are dealt with in [`ExporterCLIArgs`] via `clap`, and take in a list input files, an extension for the final export (either HTML or CSV right now via [`ExportType`]) and the file name for that export.
+//! 
+//! The `run` function collects the arguments, gets traces and then exports.
 
 use crate::ExportType;
 use benchmarker::io::{export_csv_no_file_input, export_html_no_file_input, get_traces};
@@ -6,7 +10,7 @@ use clap::Parser;
 use std::path::PathBuf;
 
 #[derive(Clone, Debug, Parser)] //struct for exporter cli args that can be cloned/printed/parsed from cli
-///CLI Arguments for the Exporter
+///CLI Arguments for the Exporter, designed to be collected via `clap`
 pub struct ExporterCLIArgs {
     ///List of input CSV files to pull from
     #[arg(long, short)]
@@ -32,7 +36,7 @@ pub fn run(
     let traces = get_traces(input, None).expect("unable to get traces");
     match output_ty {
         ExportType::HTML => export_html_no_file_input(output_without_extension, traces)
-            .expect("unable to export files to csv"),
+            .expect("unable to export files to html"),
         ExportType::CSV => export_csv_no_file_input(output_without_extension, traces)
             .expect("unable to export files to csv"),
     };
