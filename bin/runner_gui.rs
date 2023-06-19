@@ -235,7 +235,12 @@ impl App for BencherApp {
                                         cli_args.backing_vec(),
                                         runs,
                                         Some(recv_stop),
-                                        *warmup,
+                                        match runs {
+                                            0..=10 => 0,
+                                            11..=25 => 1,
+                                            26..=50 => 2,
+                                            _ => 5,
+                                        },
                                         true,
                                     )
                                     .start(); //make a new run and start it

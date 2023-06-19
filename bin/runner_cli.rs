@@ -19,8 +19,8 @@ pub struct FullCLIArgs {
     #[arg(short, long, default_value_t = DEFAULT_RUNS)]
     runs: usize,
     ///Whether or not we should have a warmup run where the results aren't sent to get the program into the cache
-    #[arg(short = 'w', long, default_value_t = false)]
-    no_warmup: bool,
+    #[arg(short = 'w', long, default_value_t = 0)]
+    no_warmup_runs: u8,
     ///How to export the data - a csv with the microsecond values, or an HTML graph
     #[arg(value_enum, short = 't', long, default_value_t = ExportType::CSV)]
     export_ty: ExportType,
@@ -43,7 +43,7 @@ pub fn run(
         binary,
         cli_args,
         runs,
-        no_warmup,
+        no_warmup_runs,
         export_ty,
         export_out_file,
         export_trace_name,
@@ -99,7 +99,7 @@ pub fn run(
         cli_args,
         runs,
         Some(stop_rx),
-        !no_warmup,
+        no_warmup_runs,
         print_initial,
     )
     .start(); //get a handle from a new runner, with the binary etc
