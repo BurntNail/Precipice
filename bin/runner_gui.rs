@@ -207,6 +207,9 @@ impl App for BencherApp {
 
                     ui.label("CLI Arguments");
                     cli_args.display(ui, |arg, _i| arg.to_string()); //display all the CLI arguments, not displaying indicies
+                    if let Some(change) = cli_args.had_update() {
+                        trace!(?change, "CLI Args");
+                    }
 
                     ui.horizontal(|ui| {
                         ui.label("New Argument");
@@ -467,6 +470,12 @@ impl App for BencherApp {
                         ui.label("Exporting..."); //if we haven't finished, but have a handle then say we're exporting
                     }
                 });
+
+                if export_handle.as_ref().map_or(false, |eh| eh.is_finished()) {
+                    let thread = std::mem::take(export_handle).expect("just checked that the thread was non-none");
+                    let n = thread.join().expect("unable to join export handle");
+                    trace!(?n, "Finished export");
+                }
 
                 let mut should_close = false; //temp variable for if we need to close stuff to avoid ownership faffery
                 if let Some(dialog) = extra_trace_names_dialog {
