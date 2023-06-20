@@ -2,7 +2,7 @@
 
 A command-line and GUI benchmarking tool and graph generator.
 
-![LOCs](https://tokei.rs/b1/github/BurntNail/Precipice)](https://github.com/BurntNail/Precipice).
+![LOCs](https://tokei.rs/b1/github/BurntNail/Precipice)
 
 ## Features
 
