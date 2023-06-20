@@ -108,7 +108,11 @@ impl ExporterApp {
 #[allow(clippy::needless_pass_by_value)]
 #[instrument]
 fn handle_loading(file_rx: Receiver<PathBuf>, trace_tx: Sender<(PathBuf, String, Vec<u128>)>) {
-    while let Ok(file) = file_rx.try_recv() {
+    println!("Handling loading");
+
+    while let Ok(file) = file_rx.recv() {
+        println!("Polled");
+
         match import_csv(file.clone()) {
             Ok(traces) => {
                 for (name, list) in traces {
@@ -121,6 +125,8 @@ fn handle_loading(file_rx: Receiver<PathBuf>, trace_tx: Sender<(PathBuf, String,
                 error!(?e, "Error reading traces");
             }
         };
+
+        std::thread::yield_now()
     }
 }
 impl App for ExporterApp {

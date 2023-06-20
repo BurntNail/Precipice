@@ -9,7 +9,6 @@ use std::{
 
 ///An enum to represent a change in a list item
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-#[non_exhaustive]
 pub enum ChangeType<T> {
     ///An item was removed
     Removed(T),
@@ -187,5 +186,10 @@ impl<T> AsRef<[T]> for EguiList<T> {
     //get slice methods
     fn as_ref(&self) -> &[T] {
         &self.backing
+    }
+}
+impl<T> AsMut<[T]> for EguiList<T> {
+    fn as_mut(&mut self) -> &mut [T] {
+        &mut self.backing
     }
 }
