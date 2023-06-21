@@ -4,7 +4,6 @@
 \usepackage{geometry}
 \geometry{a4paper, margin=1in}
 
-\usepackage{listings, listings-rust}
 \usepackage[hidelinks]{hyperref}
 \usepackage[backend=bibtex,style=numeric]{biblatex}
 % \bibliography{kebib}
@@ -13,8 +12,22 @@
 \usepackage{sectsty}
 \renewcommand*\familydefault{\sfdefault} % Force the sans-serif version of any font used
 
+\usepackage{listings, listings-rust}
+\lstdefinestyle{mystyle}{
+	breakatwhitespace=false,         
+	breaklines=true,                 
+	captionpos=b,                    
+	keepspaces=true,                 
+	showspaces=false,                
+	showstringspaces=false,
+	showtabs=false,                  
+	tabsize=2
+}
+\lstset{style=mystyle}
 
-\lstset{basicstyle=\lstsansserif}
+\usepackage{courier}
+\lstset{basicstyle=\footnotesize\ttfamily,breaklines=true}
+\lstset{framextopmargin=50pt,frame=bottomline}
 
 
 \title{Precipice}
@@ -265,7 +278,7 @@ fn display_inner(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {
 	}
 }
 
-pub fn display(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {
+pub fn display(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {	
 	if self.is_scrollable {
 		ScrollArea::vertical().max_height(300.0).show(ui, |ui| {
 			self.display_inner(ui, label);
@@ -275,6 +288,31 @@ pub fn display(&mut self, ui: &mut Ui, label: impl Fn(&T, usize) -> String) {
 	}
 }
 \end{lstlisting}
+
+Since the list can be inside a scrollable area, I have to have 2 methods - one to draw the list and one that the user calls. If the user specifies that the list should be scrollable, then the UI object from the scrollarea is passed into the inner display method, and if not then we give it the raw UI. The function also takes a function in as an argument which takes in the object to display, its index and should return a string to display.
+
+Inside the inner function, we first check if the list is empty, and if it is then we early exit. Then, we declare a few temporary nullable variables for edits to the list. We then iterate through the whole list, displaying each item using the passed in function. We check if we can edit and reorder and if so, then we add buttons. If those buttons are clicked, we set the relevant temporary variables. Since \textit{egui} works as an immediate mode GUI, only one element can be clicked every frame.
+
+Then, we check those variables and make the relevant changes to the list, ensuring to account for rolling around the list if we try to move the top element up or the bottom element down.
+
+
+\subsection{\textit{Runner}}
+The \textit{Runner} is the struct which actually benches the program.
+
+\subsubsection{Variables}
+Similar to the \textit{EguiList}, the \textit{Runner} has a number of variables which control the options.
+
+\begin{lstlisting}[language=Rust]
+pub struct Runner {
+	pub binary: PathBuf,
+	pub cli_args: Vec<String>,
+	pub runs: usize,
+	pub stop_rx: Option<Receiver<()>>,
+	pub warmup: u8,
+	pub print_initial: bool,
+}
+\end{lstlisting}
+
 
 
 \end{document}
