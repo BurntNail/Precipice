@@ -23,7 +23,7 @@ use std::{
     io::Write,
     path::PathBuf,
     process::{Command, Output, Stdio},
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc::{channel, Receiver, TryRecvError},
     thread::JoinHandle,
     time::{Duration, Instant},
 };
@@ -85,7 +85,6 @@ impl Runner {
             warmup,
             print_initial,
         } = self; //destructure self - we can't do this in the method signature as I like using self to call methods, and you can't destructure self
-        let runs = runs - usize::from(!warmup); // if we warmup, we don't need to minus a run, as we don't send it
 
         let (duration_sender, duration_receiver) = channel(); //Here, we create a channel to send over the durations
 
@@ -140,7 +139,7 @@ impl Runner {
                 {
                     if stop_rx
                         .as_ref()
-                        .map_or(true, |stop_recv| stop_recv.try_recv().is_err())
+                        .map_or(true, |stop_recv| matches!(stop_recv.try_recv(), Err(TryRecvError::Empty)))
                     //If we don't receive anything on the stop channel, or we don't have a stop channel
                     {
                         trace!(%chunk_size, "Starting batch.");

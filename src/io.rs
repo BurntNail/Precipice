@@ -7,7 +7,6 @@ use std::{
     path::Path,
 };
 use clap::ValueEnum;
-use crate::bencher::DEFAULT_RUNS;
 use plotly::{Histogram, Plot};
 
 ///Imports a set of traces from a CSV file
@@ -25,21 +24,22 @@ pub fn import_csv(file: impl AsRef<Path>) -> io::Result<Vec<(String, Vec<u128>)>
     let lines = lines.lines();
 
     let mut trace_contents: Vec<(String, Vec<u128>)> = Vec::with_capacity(no_lines);
+
     for line in lines {
-        let mut title = String::new();
-        let mut contents = Vec::with_capacity(
-            trace_contents
-                .first()
-                .map_or(DEFAULT_RUNS, |(_, v)| v.len()),
-        ); //make a new vec with the capacity of the first one, or if we don't have one yet, use DEFAULT_RUNS
-        for (j, time) in line.split(',').enumerate() {
-            if j == 0 {
-                title = time.to_string(); //here, it isn't a time, its a title - the first item is the title
-            } else {
-                contents.push(time.parse().expect("unable to parse time")); //here, it is a time, so we need to parse it.
+        let mut values = line.split(',');
+
+        let Some(title) = values.next() else {
+            error!("Missing title");
+            continue;
+        };
+        let contents = match values.map(str::parse).collect() {
+            Ok(v) => v,
+            Err(e) => {
+                error!(?e, "Error parsing CSV file");
+                continue;
             }
-        }
-        trace_contents.push((title, contents));
+        };
+        trace_contents.push((title.to_string(), contents));
     }
 
     Ok(trace_contents)
@@ -53,18 +53,14 @@ pub fn get_traces(
     trace_file_names: impl IntoIterator<Item = impl AsRef<Path>>,
     trace: Option<(String, Vec<u128>)>,
 ) -> io::Result<Vec<(String, Vec<u128>)>> {
-    let mut traces: Vec<(String, Vec<u128>)> = trace_file_names
+    Ok(trace_file_names
         .into_iter() //for each trace
         .map(import_csv) //import it
         .collect::<io::Result<Vec<Vec<(String, Vec<u128>)>>>>()? //collect any results and bubble
         .into_iter() //make that back into an iterator
         .flatten() //flatten it - Vec<Vec<T>> to a flat Vec<T>
-        .collect(); //then get that into a Vec<T>
-    if let Some((name, times)) = trace {
-        //if we got a trace to start with
-        traces.push((name, times)); //add it
-    }
-    Ok(traces)
+        .chain(trace)
+        .collect())
 }
 
 ///Exports a set of traces to a CSV file
@@ -137,7 +133,10 @@ pub fn export_html_no_file_input(
     }
 
     let mut file = File::create(format!("{file_name_input}.html"))?; //make a file
-    let html = plot.to_html(); //make the html
+    let mut html = plot.to_html(); //make the html
+
+    html = html.replace("https://cdn.plot.ly/plotly-2.12.1.min.js", "https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.24.2/plotly.min.js"); //currently, cdn is down
+
     let html = html.as_bytes(); //get the bytes - 2 steps to avoid dropping temporary value
     file.write_all(html)?; //write all of the bytes
 
