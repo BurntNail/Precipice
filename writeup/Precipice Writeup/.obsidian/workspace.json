@@ -22,11 +22,11 @@
         ]
       },
       {
-        "id": "36c6aa4fb3068583",
+        "id": "9d27ecc5211871e2",
         "type": "tabs",
         "children": [
           {
-            "id": "983b91119fedbd27",
+            "id": "e314ab3ce38eaed4",
             "type": "leaf",
             "state": {
               "type": "reveal-preview-view",
@@ -161,12 +161,34 @@
       "obsidian-advanced-slides:Show Slide Preview": false
     }
   },
-  "active": "a57b812c8d66f0e7",
+  "active": "0c84a5bd81984ba9",
   "lastOpenFiles": [
-    "ijw.gif",
-    "Precipice Presentation.md",
-    "stopwatch-removebg-preview.png",
-    "stopwatch.jpg",
-    "winky.png"
+    "export/Precipice Presentation/Precipice Presentation.zip",
+    "export/Precipice Presentation/dist.zip",
+    "export/Precipice Presentation/all done.jpg",
+    "export/Precipice Presentation/spaghett-removebg-preview.png",
+    "export/Precipice Presentation/stopwatch-removebg-preview.png",
+    "export/Precipice Presentation/ijw.gif",
+    "export/Precipice Presentation/winky.png",
+    "export/Precipice Presentation/plugin/chalkboard/img/whiteboard.png",
+    "export/Precipice Presentation/plugin/chalkboard/img/sponge.png",
+    "export/Precipice Presentation/plugin/chalkboard/img/chalk-yellow.png",
+    "export/Precipice Presentation/plugin/chalkboard/img/chalk-white.png",
+    "export/Precipice Presentation/plugin/chalkboard/img/chalk-red.png",
+    "export/Precipice Presentation/plugin/chalkboard/_style.css",
+    "export/Precipice Presentation/plugin/chalkboard/style.css",
+    "export/Precipice Presentation/plugin/chalkboard/plugin.js",
+    "export/Precipice Presentation/plugin/chalkboard/README.md",
+    "export/Precipice Presentation/plugin/chalkboard/img",
+    "export/Precipice Presentation/plugin/chalkboard/plugin (copy).js",
+    "export/Precipice Presentation/plugin/chalkboard",
+    "export/Precipice Presentation/plugin/chart/plugin.js",
+    "export/Precipice Presentation/plugin/chart/README.md",
+    "export/Precipice Presentation/plugin/chart/chart.min.js",
+    "export/Precipice Presentation/plugin/chart",
+    "export/Precipice Presentation/plugin/customcontrols/README.md",
+    "export/Precipice Presentation/plugin/menu/README.md",
+    "export/Precipice Presentation/plugin/menu/CONTRIBUTING.md",
+    "Precipice Presentation.md"
   ]
 }

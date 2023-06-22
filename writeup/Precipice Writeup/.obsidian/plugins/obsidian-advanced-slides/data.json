@@ -7,7 +7,7 @@
   "enableMenu": false,
   "enablePointer": true,
   "enableTimeBar": false,
-  "theme": "night",
+  "theme": "black",
   "highlightTheme": "monokai",
   "transition": "fade",
   "transitionSpeed": "fast",

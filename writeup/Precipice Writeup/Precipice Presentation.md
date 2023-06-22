@@ -200,3 +200,178 @@ Now, we get to the meat & potatoes of this presentation. I'll be talking about t
 
 ---
 
+#### Variables
+```rust
+enum core::option::Option<T> {
+	Some(T),
+	None
+}
+
+pub struct Runner {
+    pub binary: PathBuf,
+    pub cli_args: Vec<String>,
+    pub runs: usize,
+    pub stop_rx: Option<Receiver<()>>,
+    pub warmup: u8,
+    pub print_initial: bool,
+}
+```
+
+notes:
+
+Right, now here I've got 2 declarations - an enum and a new struct. The enum is in the standard library and is used for nullable values. The struct (explain values i cba lol)
+
+---
+
+### Benchmark run
+
+![[spaghett-removebg-preview.png]]
+notes:
+
+Now, get ready for the real meat & potatoes of this presentation - the actual benchmarker itself. This function gets long and complicated, so I'll be splitting it up into bite-sized pieces.
+
+---
+
+#### Function signature
+
+```rust
+pub fn start(self) -> (JoinHandle<io::Result<()>>, Receiver<Duration>) {
+    let Self {
+        runs,
+        binary,
+        cli_args,
+        stop_rx,
+        warmup,
+        print_initial,
+    } = self;
+
+	//more code ;)
+}
+```
+
+notes:
+Now, I understand that I'm starting simple here, but I've got new syntax and it is a decent place to start.
+ - This function takes self, which means that you can accidentally set 2 benchmark threads going unless you mean to.
+ - It doesn't return runs, and instead returns a JoinHandle for the thread and a Receiver. That receiver will receive the run times on a separate thread and that gets processed by the UI. Think of a channel as a huge unbounded list that doesn't block so messages can easily be shared between threads - incredibly useful for avoiding obscure memory errors and keeping UI up-to-date. The JoinHandle just lets users join the thread and check when it finishes.
+
+---
+#### Threads
+```rust
+    let (duration_sender, duration_receiver) = channel();
+    let handle = Builder::new() //NB: explain
+        .name("benchmark_runner".into())
+        .spawn(move || {
+	        let mut command = Command::new(binary);
+			command.args(cli_args);
+	        //guess what? more code :D
+	        Ok(())
+	    }
+	    .expect("error creating thread");
+    (handle, duration_receiver)
+```
+
+notes:
+
+So, here we start the thread up. I give it a name, and move the existing arguments into that thread - this explicit-ness ensures that we avoid data races. I then immediately create the command and set the CLI arguments. I'm not sure if you remember (flick back), but our join handle had a generic type with an IOResult, which means that our handle must return an IOResult. I don't actually need to return anything - I'm just using it for convenient error handling, so I can use the `?` operator. In that case, I can return an empty tuple for ease. Put a pin in that for now. Then, since spawning a thread is a fallible operation, I have to deal with the error. However - since if I can't spawn a thread I'm kinda scuppered, I just panic and exit the process if I can't.
+
+---
+
+#### ?
+
+```rust
+fn abc () -> Result<i32, ParseError>;
+
+fn do_stuff_match () -> Result<i32, ParseError> {
+	let x = match abc() {
+		Ok(worked) => worked,
+		Err(e) => return Err(e)
+	};
+
+	Ok(x)
+}
+fn do_stuff_try () -> Result<i32, ParseError> {
+	let x = abc()?;
+	OK(x)
+}
+```
+
+notes:
+
+This is another place where rust syntactic sugar comes into play - the ? operator quickly bubbles up errors - these 2 functions are exactly the same.
+
+---
+
+#### Warmup
+
+```rust
+if let Ok(cd) = current_dir() {
+    command.current_dir(cd);
+}
+let mut is_first = true;
+for _ in 0..warmup {
+    let Output {status, stdout, stderr} = command.output()?;
+    if !status.success() {
+        error!(?status, "Initial Command failed");
+        return Ok(());
+    }
+    //print output
+}
+command.stdout(Stdio::null()).stderr(Stdio::null());
+```
+
+notes:
+This is where I handle the warmup. I have also moved the directory faffery here to fit it in the code boxes. The if statement at the top is another rust magic trick - `current_dir` gets the current directory, but could have any number of reasons for failing ranging from non-existent CDs to incorrect permissions so I have to deal with the error. This basically means - if I can get an `Ok` out of the `Result`, then bind the name to `cd` and lemme use it.
+
+I then loop through the warmups, and grab the output. If its the first run and the variable to print the first run was set, then I do that, and then I set `is_first` to false. I always print the errors.
+
+Finally, I redirect the output for the main runs straight into the bin to make sure that printing time doesn't affect the runs - I've had times where my program has been significantly slower because I've been printing often.
+
+---
+
+#### benching code
+
+```rust
+for chunk_size in (0..runs).chunks(CHUNK_SIZE)
+    .into_iter().map(Iterator::count)
+{
+    if stop_rx.as_ref()
+        .map_or(true, |stop_recv| 
+        matches!(stop_recv.try_recv(), Err(TryRecvError::Empty)))
+    {
+        for _ in 0..chunk_size {
+            start = Instant::now();
+            let status = command.status()?;
+            let elapsed = start.elapsed();
+            duration_sender
+                .send(elapsed)
+                .expect("Error sending result");
+  
+            if !status.success() {
+                warn!(?status, "Command failed");
+            }
+        }
+    } else {
+        break;
+    }
+}
+```
+
+notes:
+
+Sorry for the scroll here! So, first I split the runs into chunks, and then for every chunk I grab its length. I then iterate over those lengths.
+
+First thing I do is then to check if we have a stop receiver, and if we do I try to get input from it. If it fails by way of being empty, they haven't sent the stop message yet so we go through to the chunk. If not, then I break the loop, and the thread ends not long after.
+
+Inside the loop, I reset the timer, run the program and get the time it took. I then send it to the sender - the only way it can fail is if the receiver is closed and if it does then I need to get out of the thread so panicking works well. 
+
+If the command fails, I warn in the console, rather than stopping.
+
+---
+
+### Done!
+
+![[all done.jpg]]
+
+notes:
+
+Right, thanks for listening but this presentation is now over. I'll quickly demo the benchmarker and whilst I get it running I'll happily take questions.
